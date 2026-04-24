@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   ScrollView,
 } from "react-native";
 
+import { useFocusEffect } from "@react-navigation/native";
 import { signOut } from "firebase/auth";
 import { auth, db } from "../firebase/config";
 import { collection, getDocs } from "firebase/firestore";
@@ -20,49 +21,50 @@ export default function LecturerDashboard({ navigation }) {
     reports: 0,
   });
 
-  // =========================
-  // LOAD LECTURER DATA
-  // =========================
+  
+  const loadData = async () => {
+    try {
+      const courseSnap = await getDocs(collection(db, "courses"));
+      const reportSnap = await getDocs(collection(db, "lectureReports"));
+
+      const myCourses = courseSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(c => c.lecturerId === user.uid);
+
+      const myClasses = new Set(myCourses.map(c => c.classId));
+
+      const myReports = reportSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(r => r.lecturerId === user.uid);
+
+      setStats({
+        courses: myCourses.length,
+        classes: myClasses.size,
+        reports: myReports.length,
+      });
+
+    } catch (error) {
+      console.log(error.message);
+    }
+  };
+
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        const courseSnap = await getDocs(collection(db, "courses"));
-        const reportSnap = await getDocs(collection(db, "reports"));
-
-        const myCourses = courseSnap.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
-          .filter((c) => c.lecturerId === user.uid);
-
-        const myClasses = new Set(myCourses.map((c) => c.classId));
-
-        const myReports = reportSnap.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
-          .filter((r) => r.lecturerId === user.uid);
-
-        setStats({
-          courses: myCourses.length,
-          classes: myClasses.size,
-          reports: myReports.length,
-        });
-      } catch (error) {
-        console.log(error.message);
-      }
-    };
-
     loadData();
   }, []);
 
-  // =========================
-  // LOGOUT
-  // =========================
+ 
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [])
+  );
+
+
   const logout = async () => {
     await signOut(auth);
     navigation.replace("Login");
   };
 
-  // =========================
-  // NAV CARD
-  // =========================
   const NavCard = ({ title, subtitle, route, accent }) => (
     <TouchableOpacity
       style={[styles.navCard, { borderLeftColor: accent, borderLeftWidth: 3 }]}
@@ -77,9 +79,6 @@ export default function LecturerDashboard({ navigation }) {
     </TouchableOpacity>
   );
 
-  // =========================
-  // STAT BOX
-  // =========================
   const StatBox = ({ value, label, bg }) => (
     <View style={[styles.statBox, { backgroundColor: bg }]}>
       <Text style={styles.statNum}>{value}</Text>
@@ -90,16 +89,17 @@ export default function LecturerDashboard({ navigation }) {
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
 
-      {/* ── HEADER ── */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}></Text>
           </View>
+
           <View>
             <Text style={styles.portalTitle}>Lecturer Portal</Text>
             <Text style={styles.portalSub}>My Teaching Dashboard</Text>
           </View>
+
           <View style={styles.activeBadge}>
             <Text style={styles.activeBadgeText}>Active</Text>
           </View>
@@ -107,15 +107,14 @@ export default function LecturerDashboard({ navigation }) {
 
         <View style={styles.divider} />
 
-        {/* STATS ROW */}
-        <View style={styles.statsRow}>
+         <View style={styles.statsRow}>
           <StatBox value={stats.courses} label="My Courses" bg="#E6F1FB" />
-          <StatBox value={stats.classes} label="Classes"    bg="#EEEDFE" />
-          <StatBox value={stats.reports} label="Reports"    bg="#E1F5EE" />
+          <StatBox value={stats.classes} label="Classes" bg="#EEEDFE" />
+          <StatBox value={stats.reports} label="Reports" bg="#E1F5EE" />
         </View>
       </View>
 
-      {/* ── NAV SECTION ── */}
+     
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>NAVIGATION</Text>
 
@@ -125,24 +124,28 @@ export default function LecturerDashboard({ navigation }) {
           route="LectureReportForm"
           accent="#2563eb"
         />
+
         <NavCard
           title="My Classes"
           subtitle="View assigned classes only"
           route="Classes"
           accent="#7c3aed"
         />
+
         <NavCard
           title="Attendance"
           subtitle="Mark student attendance"
           route="Attendance"
           accent="#16a34a"
         />
+
         <NavCard
           title="Ratings"
           subtitle="Student feedback"
           route="Ratings"
           accent="#d97706"
         />
+
         <NavCard
           title="Monitoring"
           subtitle="Performance overview"
@@ -151,9 +154,9 @@ export default function LecturerDashboard({ navigation }) {
         />
       </View>
 
-      {/* ── LOGOUT ── */}
+    
       <View style={styles.section}>
-        <TouchableOpacity style={styles.logoutBtn} onPress={logout} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
       </View>
@@ -162,17 +165,12 @@ export default function LecturerDashboard({ navigation }) {
   );
 }
 
-// =========================
-// STYLES
-// =========================
 const styles = StyleSheet.create({
-
   container: {
     flex: 1,
     backgroundColor: "#0f172a",
   },
 
-  // ── Header
   header: {
     backgroundColor: "#111827",
     padding: 20,
@@ -182,12 +180,14 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 20,
     marginBottom: 8,
   },
+
   headerTop: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     marginBottom: 18,
   },
+
   avatar: {
     width: 42,
     height: 42,
@@ -196,21 +196,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   avatarText: {
     color: "#93c5fd",
     fontSize: 14,
     fontWeight: "600",
   },
+
   portalTitle: {
     color: "#f1f5f9",
     fontSize: 17,
     fontWeight: "700",
   },
+
   portalSub: {
     color: "#64748b",
     fontSize: 12,
     marginTop: 2,
   },
+
   activeBadge: {
     marginLeft: "auto",
     backgroundColor: "#14532d",
@@ -220,22 +224,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#166534",
   },
+
   activeBadgeText: {
     color: "#86efac",
     fontSize: 11,
     fontWeight: "600",
   },
+
   divider: {
     height: 1,
     backgroundColor: "#1e293b",
     marginBottom: 16,
   },
 
-  // ── Stats
   statsRow: {
     flexDirection: "row",
     gap: 10,
   },
+
   statBox: {
     flex: 1,
     borderRadius: 10,
@@ -243,23 +249,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     alignItems: "center",
   },
+
   statNum: {
     fontSize: 22,
     fontWeight: "700",
     color: "#0f172a",
   },
+
   statLabel: {
     fontSize: 11,
     color: "#334155",
     marginTop: 3,
   },
 
-  // ── Section
   section: {
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 4,
   },
+
   sectionLabel: {
     fontSize: 11,
     fontWeight: "600",
@@ -268,7 +276,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
 
-  // ── Nav cards
   navCard: {
     backgroundColor: "#1e293b",
     borderRadius: 12,
@@ -278,27 +285,28 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
+
   navCardInner: {
     flex: 1,
   },
+
   navCardTitle: {
     color: "#f1f5f9",
     fontSize: 15,
     fontWeight: "600",
   },
+
   navCardSub: {
     color: "#64748b",
     fontSize: 12,
     marginTop: 3,
   },
+
   navArrow: {
     color: "#475569",
     fontSize: 22,
-    fontWeight: "300",
-    marginLeft: 8,
   },
 
-  // ── Logout
   logoutBtn: {
     backgroundColor: "#1c0a0a",
     borderWidth: 1,
@@ -309,6 +317,7 @@ const styles = StyleSheet.create({
     marginBottom: 32,
     marginTop: 4,
   },
+
   logoutText: {
     color: "#fca5a5",
     fontSize: 14,

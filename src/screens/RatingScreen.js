@@ -2,235 +2,662 @@ import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   FlatList,
   StyleSheet,
   Alert,
   ScrollView,
   SafeAreaView,
+  TextInput,
+  ActivityIndicator,
 } from "react-native";
-import { auth, db } from "../firebase/config";
-import { collection, addDoc, getDocs, doc, getDoc } from "firebase/firestore";
 
-/* ───────────────────────── STAR PICKER ───────────────────────── */
+import { auth, db } from "../firebase/config";
+import {
+  collection,
+  addDoc,
+  getDocs,
+  getDoc,
+  doc,
+  query,
+  where,
+} from "firebase/firestore";
+
+const C = {
+  navy:   "#0f1f3d",
+  navy2:  "#1a2f52",
+  gold:   "#c9a84c",
+  white:  "#ffffff",
+  bg:     "#f5f7fb",
+  card:   "#ffffff",
+  border: "#e4e8f0",
+  text:   "#102040",
+  muted:  "#6c7a96",
+  badge:  "#edf0f7",
+};
+
 function StarPicker({ value, onChange }) {
   return (
     <View style={styles.starRow}>
       {[1, 2, 3, 4, 5].map((n) => (
         <TouchableOpacity key={n} onPress={() => onChange(n)}>
-          <Text style={[styles.star, n <= value && styles.starLit]}>★</Text>
+          <Text style={[styles.star, n <= value && styles.starActive]}>
+            ★
+          </Text>
         </TouchableOpacity>
       ))}
     </View>
   );
 }
 
-/* ───────────────────────── CARD ───────────────────────── */
-function RatingCard({ item, showLecturer = false }) {
+function CourseCard({ item, selected, onPress }) {
   return (
-    <View style={styles.card}>
-      <Text style={styles.cardText}>
-        {item.studentName} → {item.courseName}
-      </Text>
-      {showLecturer && (
-        <Text style={styles.cardSub}>{item.lecturerName}</Text>
+    <TouchableOpacity
+      style={[styles.courseCard, selected && styles.courseCardSelected]}
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
+      <View style={{ flex: 1 }}>
+        
+        <Text style={styles.courseTitle}>{item.courseName}</Text>
+
+        <View style={styles.courseMetaRow}>
+       
+          <View style={styles.codeBadge}>
+            <Text style={styles.codeBadgeText}>{item.courseCode}</Text>
+          </View>
+          <Text style={styles.courseLecturer}>
+            {item.lecturerUsername || item.lecturerName || item.username || "No lecturer"}
+          </Text>
+        </View>
+      </View>
+
+      {selected && (
+        <View style={styles.checkCircle}>
+          <Text style={styles.checkMark}>✓</Text>
+        </View>
       )}
-      <Text style={styles.cardSub}>⭐ {item.rating}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function RatingCard({ item, showLecturer = false }) {
+  const initials = (item.studentName || "?")
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  const dateStr = item.createdAt
+    ? new Date(item.createdAt).toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })
+    : null;
+
+  return (
+    <View style={styles.ratingCard}>
+      <View style={styles.ratingTop}>
+      
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{initials}</Text>
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.studentName}>
+            {item.studentName || "Student"}
+          </Text>
+          <Text style={styles.ratingMeta}>
+            {showLecturer ? `${item.lecturerName} · ` : ""}
+            {item.courseName}
+          </Text>
+        </View>
+
+        <View style={styles.ratingBadge}>
+          <Text style={styles.ratingBadgeNum}>{item.rating}</Text>
+          <Text style={styles.ratingBadgeStar}>★</Text>
+        </View>
+      </View>
+
+
+      <View style={styles.miniStarRow}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <Text
+            key={n}
+            style={[
+              styles.miniStar,
+              n <= item.rating ? styles.miniStarLit : styles.miniStarDim,
+            ]}
+          >
+            ★
+          </Text>
+        ))}
+      </View>
+
+      {!!item.comment && (
+        <Text style={styles.comment}>{item.comment}</Text>
+      )}
+
+      {!!dateStr && <Text style={styles.dateText}>{dateStr}</Text>}
     </View>
   );
 }
 
-/* ───────────────────────── MAIN ───────────────────────── */
+function AverageBlock({ average, count }) {
+  const rounded = parseFloat(average) || 0;
+  return (
+    <View style={styles.avgBlock}>
+      <Text style={styles.avgScore}>{average ?? "–"}</Text>
+      <View style={{ flexDirection: "column", gap: 4 }}>
+        <View style={styles.avgStarRow}>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <Text
+              key={n}
+              style={[
+                styles.avgStar,
+                n <= Math.round(rounded) ? styles.avgStarLit : styles.avgStarDim,
+              ]}
+            >
+              ★
+            </Text>
+          ))}
+        </View>
+        <Text style={styles.avgCount}>
+          {count} {count === 1 ? "review" : "reviews"}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function SectionLabel({ text }) {
+  return <Text style={styles.label}>{text}</Text>;
+}
 export default function RatingScreen() {
   const user = auth.currentUser;
 
-  const [role, setRole] = useState(null);
-  const [ratings, setRatings] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const [lecturer, setLecturer] = useState("");
-  const [course, setCourse] = useState("");
-  const [rating, setRating] = useState(0);
+  const [role, setRole]                     = useState(null);
+  const [loading, setLoading]               = useState(true);
+  const [courses, setCourses]               = useState([]);
+  const [selectedCourse, setSelectedCourse] = useState(null);
+  const [ratings, setRatings]               = useState([]);
+  const [rating, setRating]                 = useState(0);
+  const [comment, setComment]               = useState("");
+  const [submitting, setSubmitting]         = useState(false);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const snap = await getDoc(doc(db, "users", user.uid));
-        setRole(snap.data()?.role);
+        
+        const userSnap = await getDoc(doc(db, "users", user.uid));
+        const userData = userSnap.data();
+        setRole(userData?.role);
 
-        const r = await getDocs(collection(db, "ratings"));
-        setRatings(r.docs.map((d) => d.data()));
+        const ratingSnap = await getDocs(collection(db, "ratings"));
+        setRatings(
+          ratingSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+        );
+
+       
+        if (userData?.role === "student" && userData?.classId) {
+          const courseQ = query(
+            collection(db, "courses"),
+            where("classId", "==", userData.classId)
+          );
+          const courseSnap = await getDocs(courseQ);
+
+          const loadedCourses = courseSnap.docs.map((d) => {
+            const data = d.data();
+
+            console.log("COURSE DOC:", JSON.stringify(data));
+
+            const lecturerUsername =
+              data.lecturerUsername ||
+              data.lecturerName     ||
+              data.username         ||
+              data.displayName      ||
+              data.lecturer         ||
+              "Unknown Lecturer";
+
+            return { id: d.id, ...data, lecturerUsername };
+          });
+
+          console.log("Total courses loaded:", loadedCourses.length);
+          setCourses(loadedCourses);
+        }
       } catch (e) {
         Alert.alert("Error", e.message);
       } finally {
         setLoading(false);
       }
     };
+
     load();
   }, []);
 
 
   const submitRating = async () => {
-    await addDoc(collection(db, "ratings"), {
-      studentId: user.uid,
-      studentName: user.displayName || "Student",
-      lecturerName: lecturer,
-      courseName: course,
-      rating,
-      createdAt: new Date().toISOString(),
-    });
+    if (!selectedCourse)
+      return Alert.alert("Select Course", "Please choose a course first.");
+    if (!rating)
+      return Alert.alert("Rating Required", "Please select a star rating.");
 
-    setLecturer("");
-    setCourse("");
-    setRating(0);
+    setSubmitting(true);
+    try {
+      await addDoc(collection(db, "ratings"), {
+        studentId:    user.uid,
+        studentName:  user.displayName || "Student",
+
+        
+        lecturerId:   selectedCourse.lecturerId,
+        lecturerName: selectedCourse.lecturerUsername, 
+        courseName:   selectedCourse.courseName,         
+        courseCode:   selectedCourse.courseCode,
+        classId:      selectedCourse.classId,
+        className:    selectedCourse.className,
+
+        rating,
+        comment:   comment.trim(),
+        createdAt: new Date().toISOString(),
+      });
+
+      Alert.alert("Success", "Rating submitted successfully.");
+      setSelectedCourse(null);
+      setRating(0);
+      setComment("");
+    } catch (e) {
+      Alert.alert("Error", e.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
+  
+  const lecturerRatings = ratings.filter((r) => r.lecturerId === user.uid);
+  const average =
+    lecturerRatings.length > 0
+      ? (
+          lecturerRatings.reduce((a, b) => a + b.rating, 0) /
+          lecturerRatings.length
+        ).toFixed(1)
+      : null;
 
-  if (role === "lecturer") {
-    const myRatings = ratings.filter(
-      (r) => r.lecturerName === user.displayName
-    );
-
+  if (loading) {
     return (
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}>My Ratings</Text>
-
-        {myRatings.map((r, i) => (
-          <RatingCard key={i} item={r} />
-        ))}
-      </ScrollView>
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color={C.navy} />
+      </View>
     );
   }
 
  
-  if (role === "prl") {
+  if (role === "student") {
     return (
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}>All Ratings (PRL)</Text>
+      <SafeAreaView style={styles.container}>
+      
+        <View style={styles.header}>
+          <Text style={styles.eyebrow}>Feedback</Text>
+          <Text style={styles.headerTitle}>Rate Your Lecturer</Text>
+          <Text style={styles.headerSub}>
+            Choose a course from your class below
+          </Text>
+        </View>
 
-        {ratings.map((r, i) => (
-          <RatingCard key={i} item={r} showLecturer />
-        ))}
-      </ScrollView>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+        
+          <SectionLabel text="Available Courses" />
+
+          {courses.length === 0 ? (
+            <Text style={styles.emptyText}>
+              No courses found for your class.
+            </Text>
+          ) : (
+            <FlatList
+              data={courses}
+              scrollEnabled={false}
+              keyExtractor={(item) => item.id}
+              ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+              renderItem={({ item }) => (
+                <CourseCard
+                  item={item}
+                  selected={selectedCourse?.id === item.id}
+                  onPress={() => setSelectedCourse(item)}
+                />
+              )}
+            />
+          )}
+
+       
+          {selectedCourse && (
+            <View style={styles.selectedSummary}>
+              <Text style={styles.selectedSummaryLabel}>Selected</Text>
+              <Text style={styles.selectedSummaryTitle}>
+                {selectedCourse.courseName}
+              </Text>
+              <Text style={styles.selectedSummaryMeta}>
+                Lecturer: {selectedCourse.lecturerUsername || selectedCourse.lecturerName || selectedCourse.username || "Unknown"}
+              </Text>
+            </View>
+          )}
+
+       
+          <SectionLabel text="Your Rating" />
+          <View style={styles.starCard}>
+            <StarPicker value={rating} onChange={setRating} />
+          </View>
+
+          <SectionLabel text="Comment (optional)" />
+          <TextInput
+            style={styles.input}
+            multiline
+            numberOfLines={4}
+            placeholder="Share your feedback…"
+            placeholderTextColor={C.muted}
+            value={comment}
+            onChangeText={setComment}
+            textAlignVertical="top"
+          />
+
+        
+          <TouchableOpacity
+            style={[styles.submitBtn, submitting && { opacity: 0.6 }]}
+            onPress={submitRating}
+            disabled={submitting}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.submitText}>
+              {submitting ? "Submitting…" : "Submit Rating"}
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  if (role === "lecturer") {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.eyebrow}>Feedback Overview</Text>
+          <Text style={styles.headerTitle}>My Ratings</Text>
+          <Text style={styles.headerSub}>Feedback from your students</Text>
+        </View>
+
+        <FlatList
+          data={lecturerRatings}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            average !== null ? (
+              <AverageBlock average={average} count={lecturerRatings.length} />
+            ) : null
+          }
+          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+          renderItem={({ item }) => <RatingCard item={item} />}
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>No ratings yet.</Text>
+          }
+        />
+      </SafeAreaView>
     );
   }
 
   
-  if (role === "pl") {
-    // group lecturers
-    const map = {};
-
-    ratings.forEach((r) => {
-      const name = r.lecturerName || "Unknown";
-
-      if (!map[name]) {
-        map[name] = { name, total: 0, sum: 0 };
-      }
-
-      map[name].total += 1;
-      map[name].sum += Number(r.rating || 0);
-    });
-
-    const lecturers = Object.values(map).map((l) => ({
-      ...l,
-      avg: l.total ? (l.sum / l.total).toFixed(1) : 0,
-    }));
-
-    const systemAvg =
-      ratings.length > 0
-        ? (
-            ratings.reduce((a, b) => a + Number(b.rating), 0) /
-            ratings.length
-          ).toFixed(1)
-        : 0;
-
-    return (
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}> PL Rating Analytics</Text>
-
-        {/* SYSTEM SUMMARY */}
-        <View style={styles.box}>
-          <Text style={styles.text}>Total Ratings: {ratings.length}</Text>
-          <Text style={styles.text}>System Average:  {systemAvg}</Text>
-        </View>
-
-       
-        <Text style={styles.subtitle}>Lecturer Performance</Text>
-
-        {lecturers.map((l, i) => (
-          <View key={i} style={styles.card}>
-            <Text style={styles.text}> {l.name}</Text>
-            <Text style={styles.sub}>Reviews: {l.total}</Text>
-            <Text style={styles.sub}>Avg:  {l.avg}</Text>
-
-            <Text
-              style={[
-                styles.status,
-                l.avg >= 4
-                  ? styles.good
-                  : l.avg >= 3
-                  ? styles.medium
-                  : styles.bad,
-              ]}
-            >
-              {l.avg >= 4
-                ? "Excellent"
-                : l.avg >= 3
-                ? "Average"
-                : "Needs Improvement"}
-            </Text>
-          </View>
-        ))}
-      </ScrollView>
-    );
-  }
-
-  /* ───── STUDENT (default) ───── */
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView>
-        <Text>Student Rating </Text>
-      </ScrollView>
+      <View style={styles.header}>
+        <Text style={styles.eyebrow}>System Overview</Text>
+        <Text style={styles.headerTitle}>All Ratings</Text>
+        <Text style={styles.headerSub}>
+          Complete feedback across all lecturers
+        </Text>
+      </View>
+
+      <FlatList
+        data={ratings}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+        renderItem={({ item }) => <RatingCard item={item} showLecturer />}
+        ListEmptyComponent={
+          <Text style={styles.emptyText}>No ratings found.</Text>
+        }
+      />
     </SafeAreaView>
   );
 }
 
-/* ───────────────────────── STYLES ───────────────────────── */
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0f172a", padding: 15 },
+  container: { flex: 1, backgroundColor: C.bg },
+  centered:  { flex: 1, justifyContent: "center", alignItems: "center" },
 
-  title: { fontSize: 22, color: "white", fontWeight: "bold" },
-
-  subtitle: { color: "#93c5fd", marginTop: 15 },
-
-  box: {
-    backgroundColor: "#1e293b",
-    padding: 12,
-    borderRadius: 10,
-    marginVertical: 10,
+  header: {
+    backgroundColor: C.navy,
+    paddingTop: 52,
+    paddingBottom: 24,
+    paddingHorizontal: 24,
+  },
+  eyebrow: {
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 1.2,
+    color: C.gold,
+    textTransform: "uppercase",
+    marginBottom: 6,
+  },
+  headerTitle: {
+    fontSize: 26,
+    fontWeight: "700",
+    color: C.white,
+    marginBottom: 4,
+  },
+  headerSub: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.5)",
   },
 
-  card: {
-    backgroundColor: "#1e293b",
-    padding: 12,
-    borderRadius: 10,
+ 
+  content: { padding: 16, paddingBottom: 40 },
+
+
+  label: {
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 1,
+    color: C.muted,
+    textTransform: "uppercase",
+    marginTop: 20,
     marginBottom: 10,
   },
 
-  text: { color: "white", fontWeight: "600" },
+  // Course card
+  courseCard: {
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  courseCardSelected: {
+    borderColor: C.navy,
+    borderLeftWidth: 3,
+    borderLeftColor: C.gold,
+  },
+  courseTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: C.text,
+    marginBottom: 6,
+  },
+  courseMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  codeBadge: {
+    backgroundColor: C.badge,
+    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  codeBadgeText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: C.navy,
+    letterSpacing: 0.5,
+  },
+  courseLecturer: {
+    fontSize: 12,
+    color: C.muted,
+  },
+  checkCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: C.navy,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 10,
+  },
+  checkMark: { color: C.white, fontSize: 11, fontWeight: "700" },
 
-  sub: { color: "#94a3b8" },
+  selectedSummary: {
+    backgroundColor: C.navy,
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+  },
+  selectedSummaryLabel: {
+    fontSize: 10,
+    fontWeight: "600",
+    letterSpacing: 1,
+    color: C.gold,
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  selectedSummaryTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: C.white,
+    marginBottom: 2,
+  },
+  selectedSummaryMeta: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.6)",
+  },
 
-  status: { marginTop: 5, fontWeight: "bold" },
+  
+  starCard: {
+    backgroundColor: C.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 20,
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  starRow:    { flexDirection: "row", gap: 8 },
+  star:       { fontSize: 36, color: "#cfd6e4" },
+  starActive: { color: C.gold },
 
-  good: { color: "#22c55e" },
-  medium: { color: "#facc15" },
-  bad: { color: "#ef4444" },
+  input: {
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 12,
+    padding: 14,
+    minHeight: 100,
+    fontSize: 14,
+    color: C.text,
+  },
 
-  starRow: { flexDirection: "row" },
+  submitBtn: {
+    backgroundColor: C.navy,
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 20,
+    alignItems: "center",
+  },
+  submitText: {
+    color: C.white,
+    fontWeight: "700",
+    fontSize: 14,
+    letterSpacing: 0.4,
+  },
 
-  star: { fontSize: 30, color: "#444" },
+  emptyText: { color: C.muted, marginTop: 10, marginBottom: 20, fontSize: 13 },
 
-  starLit: { color: "#f5b942" },
+
+  ratingCard: {
+    backgroundColor: C.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 16,
+  },
+  ratingTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 10,
+  },
+  avatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: C.badge,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText:  { fontSize: 13, fontWeight: "600", color: C.navy },
+  studentName: { fontSize: 14, fontWeight: "600", color: C.text },
+  ratingMeta:  { fontSize: 12, color: C.muted, marginTop: 2 },
+
+  ratingBadge: {
+    backgroundColor: C.bg,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 3,
+  },
+  ratingBadgeNum:  { fontSize: 18, fontWeight: "700", color: C.navy },
+  ratingBadgeStar: { fontSize: 11, color: C.gold },
+
+  miniStarRow: { flexDirection: "row", gap: 3, marginBottom: 8 },
+  miniStar:    { fontSize: 13 },
+  miniStarLit: { color: C.gold },
+  miniStarDim: { color: "#dde1ec" },
+
+  comment:  { fontSize: 13, color: C.text, lineHeight: 20, marginBottom: 6 },
+  dateText: { fontSize: 11, color: C.muted },
+
+  avgBlock: {
+    backgroundColor: C.navy,
+    borderRadius: 12,
+    padding: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 20,
+    marginBottom: 20,
+  },
+  avgScore:   { fontSize: 54, fontWeight: "700", color: C.white, lineHeight: 58 },
+  avgStarRow: { flexDirection: "row", gap: 4 },
+  avgStar:    { fontSize: 16 },
+  avgStarLit: { color: C.gold },
+  avgStarDim: { color: "rgba(255,255,255,0.2)" },
+  avgCount:   { fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 4 },
 });

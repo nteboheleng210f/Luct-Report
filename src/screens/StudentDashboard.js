@@ -28,9 +28,7 @@ const NavItem = ({ icon, label, active, onPress }) => (
   </TouchableOpacity>
 );
 
-// ─────────────────────────────────────────
-// STAT CARD
-// ─────────────────────────────────────────
+
 const StatCard = ({ icon, value, label, sub, color }) => (
   <View style={[styles.statCard, { backgroundColor: color }]}>
     <Text style={styles.statIcon}>{icon}</Text>
@@ -64,7 +62,7 @@ const UpcomingClassCard = ({ classData, loading }) => {
   if (!classData) {
     return (
       <View style={styles.upcomingCard}>
-        <Text style={styles.upcomingEmpty}>📭 No upcoming classes today</Text>
+        <Text style={styles.upcomingEmpty}>No upcoming classes today</Text>
       </View>
     );
   }
@@ -72,13 +70,17 @@ const UpcomingClassCard = ({ classData, loading }) => {
   return (
     <View style={styles.upcomingCard}>
       <View style={styles.upcomingLeft}>
-        <Text style={styles.upcomingBadge}>NEXT CLASS</Text>
-        <Text style={styles.upcomingCourse}>{classData.courseName}</Text>
-        <Text style={styles.upcomingCode}>{classData.courseCode}</Text>
-      </View>
-      <View style={styles.upcomingRight}>
-        <Text style={styles.upcomingTime}>{classData.scheduledTime}</Text>
-        <Text style={styles.upcomingVenue}>📍 {classData.venue}</Text>
+        <Text style={styles.upcomingCourse}>
+  {classData.courseName} ({classData.courseCode})
+</Text>
+
+<Text style={styles.upcomingCode}>
+  {classData.day} • {classData.time}
+</Text>
+
+<Text style={styles.upcomingVenue}>
+   {classData.venue}
+</Text>
       </View>
     </View>
   );
@@ -97,10 +99,10 @@ export default function StudentDashboard({ navigation }) {
   const [upcomingClass, setUpcomingClass] = useState(null);
 
   const navItems = [
-    { icon: "⊞", label: "Dashboard"  },
-    { icon: "📅", label: "Attendance" },
-    { icon: "⭐", label: "Ratings"    },
-    { icon: "📊", label: "Monitoring" },
+    {  label: "Dashboard"  },
+    {  label: "Attendance" },
+    {  label: "Ratings"    },
+    {  label: "Monitoring" },
   ];
 
   useEffect(() => {
@@ -120,7 +122,7 @@ export default function StudentDashboard({ navigation }) {
           total ? ((present / total) * 100).toFixed(1) : 0
         );
 
-        // RATINGS
+       
         const ratingSnap = await getDocs(collection(db, "ratings"));
         const myRatings = ratingSnap.docs
           .map((doc) => doc.data())
@@ -139,56 +141,67 @@ export default function StudentDashboard({ navigation }) {
 useEffect(() => {
   const fetchUpcomingClass = async () => {
     try {
-
       const studentClass = user?.className || user?.classId;
 
       const snap = await getDocs(collection(db, "classSchedules"));
 
-      const allSchedules = snap.docs.map(doc => ({
+      const all = snap.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
 
-      // ✅ ONLY STUDENT'S CLASS (ALL DAYS)
-      const mySchedule = allSchedules.filter(item =>
-        item.className === studentClass
+      // filter student class
+      const myClasses = all.filter(c =>
+        c.className === studentClass || c.classId === studentClass
       );
 
-      // Optional: sort by day + time
-      const dayOrder = {
-        Monday: 1,
-        Tuesday: 2,
-        Wednesday: 3,
-        Thursday: 4,
-        Friday: 5,
-        Saturday: 6,
-        Sunday: 7
+      if (myClasses.length === 0) {
+        setUpcomingClass(null);
+        return;
+      }
+
+      // Day order
+      const order = {
+        MONDAY: 1,
+        TUESDAY: 2,
+        WEDNESDAY: 3,
+        THURSDAY: 4,
+        FRIDAY: 5,
+        SATURDAY: 6,
+        SUNDAY: 7,
       };
 
-      const sorted = mySchedule.sort((a, b) => {
-        if (dayOrder[a.day] !== dayOrder[b.day]) {
-          return dayOrder[a.day] - dayOrder[b.day];
-        }
-        return (a.time || "").localeCompare(b.time || "");
+      const today = new Date();
+      const currentDay = Object.keys(order)[today.getDay() - 1]?.toUpperCase();
+
+      // helper to extract start time from "12:00 -14:00"
+      const getStartTime = (t) => {
+        if (!t) return "00:00";
+        return t.split("-")[0].trim(); // "12:00"
+      };
+
+      // sort classes
+      const sorted = myClasses.sort((a, b) => {
+        const dayDiff = order[a.day] - order[b.day];
+        if (dayDiff !== 0) return dayDiff;
+
+        return getStartTime(a.time).localeCompare(getStartTime(b.time));
       });
 
-      // ✅ FIND NEXT CLASS (CURRENT DAY + TIME LOGIC)
-      const now = new Date();
-      const currentDay = Object.keys(dayOrder)[now.getDay() - 1] || "Monday";
-      const currentTime = now.toTimeString().slice(0,5);
-
+      // find next class
       let next = sorted.find(c =>
-        dayOrder[c.day] > dayOrder[currentDay] ||
-        (c.day === currentDay && c.time > currentTime)
+        order[c.day] > order[currentDay] ||
+        (c.day === currentDay &&
+          getStartTime(c.time) >= today.toTimeString().slice(0, 5))
       );
 
-      // fallback (start of week)
+      // fallback
       if (!next) next = sorted[0];
 
       setUpcomingClass(next || null);
 
-    } catch (error) {
-      console.log("Timetable error:", error);
+    } catch (err) {
+      console.log("Upcoming class error:", err);
       setUpcomingClass(null);
     } finally {
       setClassLoading(false);
@@ -273,14 +286,14 @@ useEffect(() => {
           {/* STAT CARDS */}
           <View style={styles.statRow}>
             <StatCard
-              icon="📅"
+              icon=""
               value={`${attendancePercent}%`}
               label="Attendance"
               sub="Present this term"
               color="#4f7cde"
             />
             <StatCard
-              icon="⭐"
+              icon=""
               value={ratingsCount}
               label="Ratings Given"
               sub="Lecturer reviews"
@@ -297,17 +310,17 @@ useEffect(() => {
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.actionGrid}>
             <ActionCard
-              icon="📅"
+              icon=""
               label="Attendance"
               onPress={() => navigation.navigate("Attendance")}
             />
             <ActionCard
-              icon="⭐"
+              icon=""
               label="Ratings"
               onPress={() => navigation.navigate("Ratings")}
             />
             <ActionCard
-              icon="📊"
+              icon=""
               label="Monitoring"
               onPress={() => navigation.navigate("Monitoring")}
             />
@@ -607,7 +620,7 @@ const styles = StyleSheet.create({
 
   // LOGOUT
   logoutBtn: {
-    backgroundColor: "rgba(220,38,38,0.08)",
+    backgroundColor: "rgba(241, 17, 17, 0.08)",
     borderWidth: 0.5,
     borderColor: "rgba(220,38,38,0.3)",
     padding: 14,
@@ -616,7 +629,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   logoutText: {
-    color: "#dc2626",
+    color: "#f10606",
     fontWeight: "700",
     fontSize: 14,
   },

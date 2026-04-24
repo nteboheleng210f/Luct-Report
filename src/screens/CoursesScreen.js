@@ -11,10 +11,20 @@ import {
   StatusBar,
 } from "react-native";
 
-import { db } from "../firebase/config";
-import { collection, getDocs, addDoc } from "firebase/firestore";
+import { auth, db } from "../firebase/config";
+import {
+  collection,
+  getDocs,
+  addDoc,
+  doc,
+  getDoc,
+} from "firebase/firestore";
 
 export default function CoursesScreen() {
+  const user = auth.currentUser;
+
+  const [role, setRole] = useState(null);
+
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
 
@@ -22,23 +32,27 @@ export default function CoursesScreen() {
   const [classes, setClasses] = useState([]);
   const [lecturers, setLecturers] = useState([]);
 
-  // FORM
+  // FORM (PL only)
   const [courseName, setCourseName] = useState("");
   const [courseCode, setCourseCode] = useState("");
 
   const [selectedClass, setSelectedClass] = useState(null);
   const [selectedLecturer, setSelectedLecturer] = useState(null);
 
-  
   const [showClassDropdown, setShowClassDropdown] = useState(false);
   const [showLecturerDropdown, setShowLecturerDropdown] = useState(false);
 
-  
   useEffect(() => {
     const load = async () => {
       try {
+        // role
+        const userSnap = await getDoc(doc(db, "users", user.uid));
+        const userRole = userSnap.data()?.role;
+        setRole(userRole);
+
+        // shared data
         const classSnap = await getDocs(collection(db, "classSchedules"));
-        const userSnap = await getDocs(collection(db, "users"));
+        const userListSnap = await getDocs(collection(db, "users"));
         const courseSnap = await getDocs(collection(db, "courses"));
 
         setClasses(
@@ -55,7 +69,7 @@ export default function CoursesScreen() {
           }))
         );
 
-        const lecturerList = userSnap.docs
+        const lecturerList = userListSnap.docs
           .map((doc) => ({
             id: doc.id,
             ...doc.data(),
@@ -73,7 +87,9 @@ export default function CoursesScreen() {
     load();
   }, []);
 
-  //create course
+  // =========================
+  // CREATE COURSE (PL only)
+  // =========================
   const createCourse = async () => {
     if (!courseName || !courseCode || !selectedClass || !selectedLecturer) {
       Alert.alert("Missing Info", "Please fill all fields");
@@ -84,18 +100,15 @@ export default function CoursesScreen() {
       setLoading(true);
 
       await addDoc(collection(db, "courses"), {
-      
         courseName,
         courseCode,
 
-        
         classId: selectedClass.id,
         className: selectedClass.className,
         venue: selectedClass.venue,
         day: selectedClass.day,
         time: selectedClass.time,
 
-       
         lecturerId: selectedLecturer.id,
         lecturerName:
           selectedLecturer.username || selectedLecturer.email,
@@ -105,7 +118,6 @@ export default function CoursesScreen() {
 
       Alert.alert("Success", "Course created successfully");
 
-      // reset form
       setCourseName("");
       setCourseCode("");
       setSelectedClass(null);
@@ -113,7 +125,6 @@ export default function CoursesScreen() {
       setShowClassDropdown(false);
       setShowLecturerDropdown(false);
 
-      // reload courses
       const snap = await getDocs(collection(db, "courses"));
       setCourses(
         snap.docs.map((doc) => ({
@@ -128,7 +139,9 @@ export default function CoursesScreen() {
     }
   };
 
-  
+  // =========================
+  // LOADING
+  // =========================
   if (fetching) {
     return (
       <View style={styles.center}>
@@ -148,9 +161,16 @@ export default function CoursesScreen() {
       {/* HEADER */}
       <View style={styles.headerCard}>
         <View>
-          <Text style={styles.pageTitle}>Courses Management</Text>
+          <Text style={styles.pageTitle}>
+            {role === "prl"
+              ? "PRL Courses Overview"
+              : "Courses Management"}
+          </Text>
+
           <Text style={styles.pageSub}>
-            Create modules • assign lecturers
+            {role === "prl"
+              ? "View all modules • assigned lecturers"
+              : "Create modules • assign lecturers"}
           </Text>
         </View>
 
@@ -159,128 +179,133 @@ export default function CoursesScreen() {
         </View>
       </View>
 
-      {/* FORM */}
-      <Text style={styles.sectionLabel}>CREATE NEW COURSE</Text>
+      {/* ========================= */}
+      {/* PL ONLY → CREATE FORM */}
+      {/* ========================= */}
+      {role !== "prl" && (
+        <>
+          <Text style={styles.sectionLabel}>CREATE NEW COURSE</Text>
 
-      <View style={styles.formCard}>
-        {/* COURSE NAME */}
-        <Text style={styles.fieldLabel}>Course Name</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. Database Systems"
-          placeholderTextColor="#475569"
-          value={courseName}
-          onChangeText={setCourseName}
-        />
+          <View style={styles.formCard}>
+            <Text style={styles.fieldLabel}>Course Name</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. Database Systems"
+              placeholderTextColor="#475569"
+              value={courseName}
+              onChangeText={setCourseName}
+            />
 
-        {/* COURSE CODE */}
-        <Text style={styles.fieldLabel}>Course Code</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. BIS1213"
-          placeholderTextColor="#475569"
-          value={courseCode}
-          onChangeText={setCourseCode}
-        />
+            <Text style={styles.fieldLabel}>Course Code</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. BIS1213"
+              placeholderTextColor="#475569"
+              value={courseCode}
+              onChangeText={setCourseCode}
+            />
 
-        
-        <Text style={styles.fieldLabel}>Select Class Schedule</Text>
+            {/* CLASS */}
+            <Text style={styles.fieldLabel}>Select Class Schedule</Text>
 
-        <TouchableOpacity
-          style={styles.dropdownBox}
-          onPress={() => {
-            setShowClassDropdown(!showClassDropdown);
-            setShowLecturerDropdown(false);
-          }}
-        >
-          <Text style={styles.dropdownText}>
-            {selectedClass
-              ? `${selectedClass.className} (${selectedClass.venue})`
-              : "Choose Class Schedule"}
-          </Text>
-
-          <Text style={styles.dropdownArrow}>
-            {showClassDropdown ? "▲" : "▼"}
-          </Text>
-        </TouchableOpacity>
-
-        {showClassDropdown &&
-          classes.map((item) => (
             <TouchableOpacity
-              key={item.id}
-              style={styles.optionCard}
+              style={styles.dropdownBox}
               onPress={() => {
-                setSelectedClass(item);
-                setShowClassDropdown(false);
-              }}
-            >
-              <Text style={styles.cardTitle}>
-                {item.className}
-              </Text>
-
-              <Text style={styles.cardSub}>
-                 {item.venue}
-              </Text>
-
-              <Text style={styles.cardSub}>
-                 {item.day} •  {item.time}
-              </Text>
-            </TouchableOpacity>
-          ))}
-
-        <Text style={styles.fieldLabel}>Select Lecturer</Text>
-
-        <TouchableOpacity
-          style={styles.dropdownBox}
-          onPress={() => {
-            setShowLecturerDropdown(!showLecturerDropdown);
-            setShowClassDropdown(false);
-          }}
-        >
-          <Text style={styles.dropdownText}>
-            {selectedLecturer
-              ? selectedLecturer.username || selectedLecturer.email
-              : "Choose Lecturer"}
-          </Text>
-
-          <Text style={styles.dropdownArrow}>
-            {showLecturerDropdown ? "▲" : "▼"}
-          </Text>
-        </TouchableOpacity>
-
-        {showLecturerDropdown &&
-          lecturers.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.optionCard}
-              onPress={() => {
-                setSelectedLecturer(item);
+                setShowClassDropdown(!showClassDropdown);
                 setShowLecturerDropdown(false);
               }}
             >
-              <Text style={styles.cardTitle}>
-                {item.username || item.email}
+              <Text style={styles.dropdownText}>
+                {selectedClass
+                  ? `${selectedClass.className} (${selectedClass.venue})`
+                  : "Choose Class Schedule"}
+              </Text>
+
+              <Text style={styles.dropdownArrow}>
+                {showClassDropdown ? "▲" : "▼"}
               </Text>
             </TouchableOpacity>
-          ))}
 
-       
-        <TouchableOpacity
-          style={[
-            styles.createBtn,
-            loading && styles.disabledBtn,
-          ]}
-          onPress={createCourse}
-          disabled={loading}
-        >
-          <Text style={styles.createBtnText}>
-            {loading ? "Saving..." : "+ Create Course"}
-          </Text>
-        </TouchableOpacity>
-      </View>
+            {showClassDropdown &&
+              classes.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.optionCard}
+                  onPress={() => {
+                    setSelectedClass(item);
+                    setShowClassDropdown(false);
+                  }}
+                >
+                  <Text style={styles.cardTitle}>
+                    {item.className}
+                  </Text>
 
-      
-      <Text style={styles.sectionLabel}>CREATED COURSES</Text>
+                  <Text style={styles.cardSub}>
+                    {item.venue}
+                  </Text>
+
+                  <Text style={styles.cardSub}>
+                    {item.day} • {item.time}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+
+            {/* LECTURER */}
+            <Text style={styles.fieldLabel}>Select Lecturer</Text>
+
+            <TouchableOpacity
+              style={styles.dropdownBox}
+              onPress={() => {
+                setShowLecturerDropdown(!showLecturerDropdown);
+                setShowClassDropdown(false);
+              }}
+            >
+              <Text style={styles.dropdownText}>
+                {selectedLecturer
+                  ? selectedLecturer.username || selectedLecturer.email
+                  : "Choose Lecturer"}
+              </Text>
+
+              <Text style={styles.dropdownArrow}>
+                {showLecturerDropdown ? "▲" : "▼"}
+              </Text>
+            </TouchableOpacity>
+
+            {showLecturerDropdown &&
+              lecturers.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.optionCard}
+                  onPress={() => {
+                    setSelectedLecturer(item);
+                    setShowLecturerDropdown(false);
+                  }}
+                >
+                  <Text style={styles.cardTitle}>
+                    {item.username || item.email}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+
+            <TouchableOpacity
+              style={[
+                styles.createBtn,
+                loading && styles.disabledBtn,
+              ]}
+              onPress={createCourse}
+              disabled={loading}
+            >
+              <Text style={styles.createBtnText}>
+                {loading ? "Saving..." : "+ Create Course"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
+
+      <Text style={styles.sectionLabel}>
+        {role === "prl" ? "ALL COURSES" : "CREATED COURSES"}
+      </Text>
 
       {courses.length === 0 ? (
         <View style={styles.emptyCard}>
@@ -295,16 +320,17 @@ export default function CoursesScreen() {
               {item.courseName} ({item.courseCode})
             </Text>
 
+            {/* PRL required info */}
             <Text style={styles.metaText}>
-               {item.lecturerName}
+              Lecturer: {item.lecturerName}
             </Text>
 
             <Text style={styles.metaText}>
-               {item.className} • {item.venue}
+               Class: {item.className} • {item.venue}
             </Text>
 
             <Text style={styles.metaText}>
-               {item.day} • ⏰ {item.time}
+               {item.day} •  {item.time}
             </Text>
           </View>
         ))

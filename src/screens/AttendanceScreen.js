@@ -239,11 +239,7 @@ export default function AttendanceScreen() {
     );
   }
 
-  // =========================
-  // =========================
-  // LECTURER VIEW 👇 (UNCHANGED)
-  // =========================
-  // =========================
+ 
   return (
     <View style={styles.container}>
 

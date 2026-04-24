@@ -15,13 +15,20 @@ import { doc, setDoc } from "firebase/firestore";
 export default function RegisterScreen({ navigation }) {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState(""); 
   const [role, setRole] = useState("student");
   const [loading, setLoading] = useState(false);
 
   const register = async () => {
-    if (!username || !email || !password) {
+    if (!username || !email || !password || !phone || !confirmPassword) {
       alert("Please fill all fields");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      alert("Passwords do not match");
       return;
     }
 
@@ -37,6 +44,7 @@ export default function RegisterScreen({ navigation }) {
       await setDoc(doc(db, "users", userCred.user.uid), {
         username: username.trim(),
         email: email.trim(),
+        phone: phone.trim(), 
         role,
         createdAt: new Date().toISOString(),
       });
@@ -83,11 +91,26 @@ export default function RegisterScreen({ navigation }) {
             onChangeText={setEmail}
           />
 
+      
+          <TextInput
+            placeholder="Phone Number"
+            style={styles.input}
+            keyboardType="phone-pad"
+            onChangeText={setPhone}
+          />
+
           <TextInput
             placeholder="Password"
             secureTextEntry
             style={styles.input}
             onChangeText={setPassword}
+          />
+
+          <TextInput
+            placeholder="Confirm Password"
+            secureTextEntry
+            style={styles.input}
+            onChangeText={setConfirmPassword}
           />
 
           <Text style={styles.label}>Role</Text>
