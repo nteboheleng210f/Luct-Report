@@ -1,42 +1,35 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  ActivityIndicator,
+  View, Text, ScrollView, StyleSheet, ActivityIndicator,
 } from "react-native";
-
 import { auth } from "../firebase/config";
 import { onAuthStateChanged } from "firebase/auth";
+import { useFocusEffect } from "@react-navigation/native";
 
 const API_URL = "https://luct-reports-kggq.onrender.com/api";
 
-// ─── Dark theme tokens ───
 const C = {
-  bg:       "#070b18",
-  card:     "#0f172a",
-  card2:    "#111827",
-  border:   "#1e293b",
-  border2:  "#0f172a",
-  text:     "#f1f5f9",
-  muted:    "#475569",
-  muted2:   "#64748b",
-  blue:     "#2563eb",
-  blueSoft: "#0c2240",
-  blueText: "#93c5fd",
-  green:    "#16a34a",
-  greenSoft:"#052e16",
-  greenText:"#4ade80",
-  red:      "#dc2626",
-  redSoft:  "#450a0a",
-  redText:  "#fca5a5",
-  amber:    "#d97706",
-  amberSoft:"#451a03",
-  amberText:"#fcd34d",
+  bg:        "#070b18",
+  card:      "#0f172a",
+  card2:     "#111827",
+  border:    "#1e293b",
+  text:      "#f1f5f9",
+  muted:     "#475569",
+  muted2:    "#64748b",
+  blue:      "#2563eb",
+  blueSoft:  "#0c2240",
+  blueText:  "#93c5fd",
+  green:     "#16a34a",
+  greenSoft: "#052e16",
+  greenText: "#4ade80",
+  red:       "#dc2626",
+  redSoft:   "#450a0a",
+  redText:   "#fca5a5",
+  amber:     "#d97706",
+  amberSoft: "#451a03",
+  amberText: "#fcd34d",
 };
 
-// ─── Helpers ───
 function fmtDate(str) {
   if (!str) return "";
   const d = new Date(str);
@@ -52,10 +45,9 @@ function pct(present, total) {
 function attColor(p) {
   if (p >= 75) return { bg: C.greenSoft, text: C.greenText, border: C.green };
   if (p >= 50) return { bg: C.amberSoft, text: C.amberText, border: C.amber };
-  return         { bg: C.redSoft,   text: C.redText,   border: C.red   };
+  return               { bg: C.redSoft,  text: C.redText,   border: C.red   };
 }
 
-// ─── Reusable components ───
 function SectionLabel({ text }) {
   return <Text style={styles.sectionLabel}>{text}</Text>;
 }
@@ -64,16 +56,8 @@ function SummaryBar({ items }) {
   return (
     <View style={styles.summaryBar}>
       {items.map((item, i) => (
-        <View
-          key={i}
-          style={[
-            styles.summaryItem,
-            i < items.length - 1 && styles.summaryItemBorder,
-          ]}
-        >
-          <Text style={[styles.summaryValue, { color: item.color || C.blueText }]}>
-            {item.value}
-          </Text>
+        <View key={i} style={[styles.summaryItem, i < items.length - 1 && styles.summaryItemBorder]}>
+          <Text style={[styles.summaryValue, { color: item.color || C.blueText }]}>{item.value}</Text>
           <Text style={styles.summaryLabel}>{item.label}</Text>
         </View>
       ))}
@@ -81,10 +65,24 @@ function SummaryBar({ items }) {
   );
 }
 
-function AttendanceRow({ report, present }) {
+function PageHeader({ title, sub }) {
+  return (
+    <View style={styles.pageHeader}>
+      <View>
+        <Text style={styles.pageTitle}>{title}</Text>
+        {!!sub && <Text style={styles.pageSub}>{sub}</Text>}
+      </View>
+      <View style={styles.pageIconBox} />
+    </View>
+  );
+}
+
+// ── Student: one row per lecture showing present/absent ──
+function StudentLectureRow({ report, present }) {
   const col = present
-    ? { bg: C.greenSoft, text: C.greenText }
-    : { bg: C.redSoft,   text: C.redText   };
+    ? { bg: C.greenSoft, text: C.greenText, border: C.green }
+    : { bg: C.redSoft,   text: C.redText,   border: C.red   };
+
   return (
     <View style={styles.row}>
       <View style={styles.rowLeft}>
@@ -92,45 +90,25 @@ function AttendanceRow({ report, present }) {
           {report.topic || report.courseName || "Lecture"}
         </Text>
         <Text style={styles.rowMeta}>
-          {[report.courseCode, fmtDate(report.date || report.createdAt)].filter(Boolean).join("  ·  ")}
+          {[report.courseCode, report.className].filter(Boolean).join("  ·  ")}
         </Text>
-        {!!report.week && (
-          <Text style={styles.rowMeta}>Week {report.week}  ·  {report.scheduledTime}</Text>
+        <Text style={styles.rowMeta}>
+          {[fmtDate(report.date || report.createdAt), report.week ? `Week ${report.week}` : ""].filter(Boolean).join("  ·  ")}
+        </Text>
+        {!!report.lecturerName && (
+          <Text style={styles.rowMeta}>👤 {report.lecturerName}</Text>
         )}
       </View>
-      <View style={[styles.pill, { backgroundColor: col.bg }]}>
-        <Text style={[styles.pillText, { color: col.text }]}>{present ? "Present" : "Absent"}</Text>
+      <View style={[styles.pill, { backgroundColor: col.bg, borderWidth: 0.5, borderColor: col.border }]}>
+        <Text style={[styles.pillText, { color: col.text }]}>
+          {present ? "✓ Present" : "✗ Absent"}
+        </Text>
       </View>
     </View>
   );
 }
 
-function ReportRow({ item }) {
-  const p   = pct(Number(item.actualPresent || 0), Number(item.totalRegistered || 1));
-  const col = attColor(p);
-  return (
-    <View style={styles.row}>
-      <View style={styles.rowLeft}>
-        <Text style={styles.rowTitle} numberOfLines={1}>
-          {item.topic || item.courseName || "Report"}
-        </Text>
-        <Text style={styles.rowMeta}>
-          {[item.lecturerName, item.courseCode].filter(Boolean).join("  ·  ")}
-        </Text>
-        <Text style={styles.rowMeta}>
-          {[fmtDate(item.date || item.createdAt), item.week ? `Week ${item.week}` : ""].filter(Boolean).join("  ·  ")}
-        </Text>
-        <Text style={styles.rowMeta}>
-          {item.actualPresent ?? "—"} present  /  {item.totalRegistered ?? "—"} registered
-        </Text>
-      </View>
-      <View style={[styles.pill, { backgroundColor: col.bg, borderColor: col.border, borderWidth: 0.5 }]}>
-        <Text style={[styles.pillText, { color: col.text }]}>{p}%</Text>
-      </View>
-    </View>
-  );
-}
-
+// ── Lecturer: one row per report they submitted ──
 function MyReportRow({ item }) {
   const p   = pct(Number(item.actualPresent || 0), Number(item.totalRegistered || 1));
   const col = attColor(p);
@@ -163,21 +141,36 @@ function MyReportRow({ item }) {
           </View>
         </View>
       </View>
-      <View style={[styles.pill, { backgroundColor: col.bg, borderColor: col.border, borderWidth: 0.5 }]}>
+      <View style={[styles.pill, { backgroundColor: col.bg, borderWidth: 0.5, borderColor: col.border }]}>
         <Text style={[styles.pillText, { color: col.text }]}>{p}%</Text>
       </View>
     </View>
   );
 }
 
-function PageHeader({ title, sub }) {
+// ── PRL/PL: one row per report across all lecturers ──
+function ReportRow({ item }) {
+  const p   = pct(Number(item.actualPresent || 0), Number(item.totalRegistered || 1));
+  const col = attColor(p);
   return (
-    <View style={styles.pageHeader}>
-      <View>
-        <Text style={styles.pageTitle}>{title}</Text>
-        {!!sub && <Text style={styles.pageSub}>{sub}</Text>}
+    <View style={styles.row}>
+      <View style={styles.rowLeft}>
+        <Text style={styles.rowTitle} numberOfLines={1}>
+          {item.topic || item.courseName || "Report"}
+        </Text>
+        <Text style={styles.rowMeta}>
+          {[item.lecturerName, item.courseCode].filter(Boolean).join("  ·  ")}
+        </Text>
+        <Text style={styles.rowMeta}>
+          {[fmtDate(item.date || item.createdAt), item.week ? `Week ${item.week}` : ""].filter(Boolean).join("  ·  ")}
+        </Text>
+        <Text style={styles.rowMeta}>
+          {item.actualPresent ?? "—"} present  /  {item.totalRegistered ?? "—"} registered
+        </Text>
       </View>
-      <View style={styles.pageIconBox} />
+      <View style={[styles.pill, { backgroundColor: col.bg, borderWidth: 0.5, borderColor: col.border }]}>
+        <Text style={[styles.pillText, { color: col.text }]}>{p}%</Text>
+      </View>
     </View>
   );
 }
@@ -186,8 +179,8 @@ function PageHeader({ title, sub }) {
    MAIN SCREEN
 ══════════════════════════════════════════════ */
 export default function MonitoringScreen() {
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
+  const [fetching, setFetching] = useState(true);
+  const [error,    setError]    = useState(null);
 
   const [role,         setRole]         = useState(null);
   const [me,           setMe]           = useState(null);
@@ -197,35 +190,51 @@ export default function MonitoringScreen() {
   const [allReports,   setAllReports]   = useState([]);
   const [allUsers,     setAllUsers]     = useState([]);
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      if (!user) { setLoading(false); return; }
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
 
-      try {
-        const res = await fetch(`${API_URL}/monitoring/${user.uid}`);
+      const load = async (uid) => {
+        try {
+          setFetching(true);
+          setError(null);
 
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const res = await fetch(`${API_URL}/monitoring/${uid}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
 
-        const data = await res.json();
+          if (!isActive) return;
 
-        setRole(data.role);
-        setMe(data.me);
-        setAllUsers(data.allUsers     || []);
-        setAllReports(data.allReports || []);
-        setMyAttendance(data.myAttendance || []);
-        setClassReports(data.classReports || []);
-        setMyReports(data.myReports       || []);
-      } catch (e) {
-        setError(e.message);
-        console.log("Monitoring error:", e.message);
-      } finally {
-        setLoading(false);
+          setRole(data.role);
+          setMe(data.me);
+          setAllUsers(data.allUsers       || []);
+          setAllReports(data.allReports   || []);
+          setMyAttendance(data.myAttendance || []);
+          setClassReports(data.classReports || []);
+          setMyReports(data.myReports       || []);
+        } catch (e) {
+          if (isActive) setError(e.message);
+        } finally {
+          if (isActive) setFetching(false);
+        }
+      };
+
+      // Try currentUser first, fall back to onAuthStateChanged
+      if (auth.currentUser) {
+        load(auth.currentUser.uid);
+      } else {
+        const unsub = onAuthStateChanged(auth, (user) => {
+          unsub();
+          if (user) load(user.uid);
+          else setFetching(false);
+        });
       }
-    });
-    return () => unsub();
-  }, []);
 
-  if (loading) {
+      return () => { isActive = false; };
+    }, [])
+  );
+
+  if (fetching) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#60a5fa" />
@@ -244,35 +253,56 @@ export default function MonitoringScreen() {
 
   const displayName = me?.username || me?.displayName || me?.name || "";
 
-  /* ── STUDENT VIEW ── */
+  /* ══ STUDENT VIEW ══
+     Only shows: their own attendance per lecture, overall %, warning if low
+  */
   if (role === "student") {
-    const lecturesWithStatus = classReports.map((report) => {
-      const attDoc = myAttendance.find(
-        (a) =>
-          a.courseId === report.courseId ||
-          (a.classId === report.classId &&
-            a.date?.substring(0, 10) === report.date?.substring(0, 10))
-      );
+    // Match each class report against the student's attendance records
+    // Support multiple matching strategies so nothing is missed
+    const lectureRows = classReports.map((report) => {
+      const match = myAttendance.find((a) => {
+        // Strategy 1: matched by reportId stored on attendance doc
+        if (a.reportId && a.reportId === report.id) return true;
+        // Strategy 2: same courseId + same date (date-only prefix)
+        if (
+          a.courseId === report.courseId &&
+          a.date?.substring(0, 10) === (report.date || report.createdAt)?.substring(0, 10)
+        ) return true;
+        // Strategy 3: same classId + same date
+        if (
+          a.classId === report.classId &&
+          a.date?.substring(0, 10) === (report.date || report.createdAt)?.substring(0, 10)
+        ) return true;
+        return false;
+      });
+
       const present =
-        attDoc?.status?.toLowerCase() === "present" ||
-        attDoc?.status?.toLowerCase() === "attended";
-      return { report, present, hasRecord: !!attDoc };
+        match?.status?.toLowerCase() === "present" ||
+        match?.status?.toLowerCase() === "attended";
+
+      return { report, present, hasRecord: !!match };
     });
 
-    const total    = lecturesWithStatus.length;
-    const attended = lecturesWithStatus.filter((l) => l.present).length;
+    const total    = lectureRows.length;
+    const attended = lectureRows.filter((l) => l.present).length;
     const absent   = total - attended;
     const attPct   = pct(attended, total);
     const col      = attColor(attPct);
 
+    // How many more lectures needed to reach 75%
+    const lecturesNeeded = attPct < 75
+      ? Math.max(0, Math.ceil((0.75 * total - attended) / 0.25))
+      : 0;
+
     return (
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        <PageHeader title="My Monitoring" sub={displayName} />
+        <PageHeader title="My Attendance" sub={displayName} />
 
+        {/* ── Overview card ── */}
         <View style={[styles.summaryCard, { borderLeftColor: col.border, borderLeftWidth: 3 }]}>
           <View style={styles.summaryCardTop}>
             <Text style={styles.summaryCardTitle}>Attendance Overview</Text>
-            <View style={[styles.pill, { backgroundColor: col.bg }]}>
+            <View style={[styles.pill, { backgroundColor: col.bg, borderWidth: 0.5, borderColor: col.border }]}>
               <Text style={[styles.pillText, { color: col.text }]}>{attPct}%</Text>
             </View>
           </View>
@@ -281,43 +311,70 @@ export default function MonitoringScreen() {
             { label: "Present",  value: attended, color: C.greenText },
             { label: "Absent",   value: absent,   color: C.redText   },
           ]} />
-          {attPct < 75 && (
-            <Text style={styles.warningText}>
-              Attendance below 75% — {Math.max(0, Math.ceil((0.75 * total - attended) / 0.25))} more lecture(s) needed to reach threshold.
-            </Text>
+
+          {/* Warning if below 75% */}
+          {attPct < 75 && total > 0 && (
+            <View style={styles.warningBox}>
+              <Text style={styles.warningTitle}>⚠ Below Minimum Attendance</Text>
+              <Text style={styles.warningText}>
+                You need to attend {lecturesNeeded} more lecture{lecturesNeeded !== 1 ? "s" : ""} to reach the 75% threshold.
+              </Text>
+            </View>
+          )}
+
+          {/* All good */}
+          {attPct >= 75 && total > 0 && (
+            <View style={styles.goodBox}>
+              <Text style={styles.goodText}>✓ Attendance is on track</Text>
+            </View>
+          )}
+
+          {/* No data yet */}
+          {total === 0 && (
+            <Text style={styles.emptyText}>No lectures recorded for your class yet.</Text>
           )}
         </View>
 
-        <SectionLabel text="Lecture Attendance" />
-        {lecturesWithStatus.length === 0 ? (
-          <Text style={styles.emptyText}>No lecture reports yet for your class.</Text>
-        ) : (
-          lecturesWithStatus.map(({ report, present, hasRecord }) => (
-            <AttendanceRow key={report.id} report={report} present={present} hasRecord={hasRecord} />
-          ))
+        {/* ── Per-lecture breakdown ── */}
+        {lectureRows.length > 0 && (
+          <>
+            <SectionLabel text="LECTURE BREAKDOWN" />
+            {lectureRows
+              .slice()
+              .sort((a, b) =>
+                new Date(b.report.date || b.report.createdAt) -
+                new Date(a.report.date || a.report.createdAt)
+              )
+              .map(({ report, present }) => (
+                <StudentLectureRow key={report.id} report={report} present={present} />
+              ))
+            }
+          </>
         )}
+
         <View style={{ height: 40 }} />
       </ScrollView>
     );
   }
 
-  /* ── LECTURER VIEW ── */
+  /* ══ LECTURER VIEW ══
+     Only shows: their own submitted reports + aggregate stats
+  */
   if (role === "lecturer") {
     const totalRegistered = myReports.reduce((s, r) => s + Number(r.totalRegistered || 0), 0);
     const totalPresent    = myReports.reduce((s, r) => s + Number(r.actualPresent    || 0), 0);
     const totalAbsent     = totalRegistered - totalPresent;
     const avgAtt          = pct(totalPresent, totalRegistered);
     const col             = attColor(avgAtt);
-    const sorted          = myReports.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     return (
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        <PageHeader title="My Monitoring" sub={displayName} />
+        <PageHeader title="My Reports" sub={displayName} />
 
         <View style={[styles.summaryCard, { borderLeftColor: col.border, borderLeftWidth: 3 }]}>
           <View style={styles.summaryCardTop}>
             <Text style={styles.summaryCardTitle}>Attendance Overview</Text>
-            <View style={[styles.pill, { backgroundColor: col.bg }]}>
+            <View style={[styles.pill, { backgroundColor: col.bg, borderWidth: 0.5, borderColor: col.border }]}>
               <Text style={[styles.pillText, { color: col.text }]}>{avgAtt}%</Text>
             </View>
           </View>
@@ -329,18 +386,23 @@ export default function MonitoringScreen() {
           ]} />
         </View>
 
-        <SectionLabel text="Report History" />
-        {sorted.length === 0 ? (
+        <SectionLabel text="REPORT HISTORY" />
+        {myReports.length === 0 ? (
           <Text style={styles.emptyText}>No reports submitted yet.</Text>
         ) : (
-          sorted.map((r) => <MyReportRow key={r.id} item={r} />)
+          myReports
+            .slice()
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+            .map((r) => <MyReportRow key={r.id} item={r} />)
         )}
         <View style={{ height: 40 }} />
       </ScrollView>
     );
   }
 
-  /* ── PRL VIEW ── */
+  /* ══ PRL VIEW ══
+     Overview of all reports — pending vs reviewed
+  */
   if (role === "prl") {
     const pending  = allReports.filter((r) => !r.prlFeedback);
     const reviewed = allReports.filter((r) =>  r.prlFeedback);
@@ -356,7 +418,7 @@ export default function MonitoringScreen() {
         <View style={[styles.summaryCard, { borderLeftColor: col.border, borderLeftWidth: 3 }]}>
           <View style={styles.summaryCardTop}>
             <Text style={styles.summaryCardTitle}>System Overview</Text>
-            <View style={[styles.pill, { backgroundColor: col.bg }]}>
+            <View style={[styles.pill, { backgroundColor: col.bg, borderWidth: 0.5, borderColor: col.border }]}>
               <Text style={[styles.pillText, { color: col.text }]}>{sysAtt}% avg</Text>
             </View>
           </View>
@@ -367,21 +429,33 @@ export default function MonitoringScreen() {
           ]} />
         </View>
 
-        <SectionLabel text="Pending Reports" />
+        <SectionLabel text="PENDING REPORTS" />
         {pending.length === 0 ? (
-          <Text style={styles.emptyText}>All reports reviewed.</Text>
+          <Text style={styles.emptyText}>All reports reviewed ✓</Text>
         ) : (
           pending
             .slice()
             .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
             .map((r) => <ReportRow key={r.id} item={r} />)
         )}
+
+        {reviewed.length > 0 && (
+          <>
+            <SectionLabel text="REVIEWED REPORTS" />
+            {reviewed
+              .slice()
+              .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+              .map((r) => <ReportRow key={r.id} item={r} />)
+            }
+          </>
+        )}
+
         <View style={{ height: 40 }} />
       </ScrollView>
     );
   }
 
-  /* ── PL / ADMIN VIEW ── */
+  /* ══ PL / ADMIN VIEW ══ */
   const lecturers = allUsers.filter((u) => u.role === "lecturer");
   const students  = allUsers.filter((u) => u.role === "student");
   const totalReg  = allReports.reduce((s, r) => s + Number(r.totalRegistered || 0), 0);
@@ -396,7 +470,7 @@ export default function MonitoringScreen() {
       <View style={[styles.summaryCard, { borderLeftColor: col.border, borderLeftWidth: 3 }]}>
         <View style={styles.summaryCardTop}>
           <Text style={styles.summaryCardTitle}>System Overview</Text>
-          <View style={[styles.pill, { backgroundColor: col.bg }]}>
+          <View style={[styles.pill, { backgroundColor: col.bg, borderWidth: 0.5, borderColor: col.border }]}>
             <Text style={[styles.pillText, { color: col.text }]}>{sysAtt}% avg</Text>
           </View>
         </View>
@@ -408,19 +482,21 @@ export default function MonitoringScreen() {
         ]} />
       </View>
 
-      <SectionLabel text="Recent Reports" />
-      {allReports
-        .slice()
-        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-        .slice(0, 20)
-        .map((r) => <ReportRow key={r.id} item={r} />)
-      }
+      <SectionLabel text="RECENT REPORTS" />
+      {allReports.length === 0 ? (
+        <Text style={styles.emptyText}>No reports yet.</Text>
+      ) : (
+        allReports
+          .slice()
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+          .slice(0, 20)
+          .map((r) => <ReportRow key={r.id} item={r} />)
+      )}
       <View style={{ height: 40 }} />
     </ScrollView>
   );
 }
 
-/* ─── STYLES ─── */
 const styles = StyleSheet.create({
   container:   { flex: 1, backgroundColor: C.bg, padding: 16 },
   center:      { flex: 1, backgroundColor: C.bg, justifyContent: "center", alignItems: "center", gap: 12 },
@@ -428,77 +504,55 @@ const styles = StyleSheet.create({
   errorText:   { color: C.redText, fontSize: 13, textAlign: "center", paddingHorizontal: 24 },
 
   pageHeader: {
-    backgroundColor: C.card,
-    borderWidth: 0.5,
-    borderColor: C.border,
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    backgroundColor: C.card, borderWidth: 0.5, borderColor: C.border,
+    borderRadius: 14, padding: 16, marginBottom: 16,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
   },
   pageTitle:   { color: C.text,  fontSize: 17, fontWeight: "700" },
   pageSub:     { color: C.muted, fontSize: 12, marginTop: 2 },
   pageIconBox: { width: 38, height: 38, borderRadius: 10, backgroundColor: C.blue },
 
   summaryCard: {
-    backgroundColor: C.card,
-    borderWidth: 0.5,
-    borderColor: C.border,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 8,
+    backgroundColor: C.card, borderWidth: 0.5, borderColor: C.border,
+    borderRadius: 14, padding: 14, marginBottom: 12,
   },
   summaryCardTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
+    flexDirection: "row", alignItems: "center",
+    justifyContent: "space-between", marginBottom: 12,
   },
   summaryCardTitle: { color: C.text, fontSize: 13, fontWeight: "600" },
 
   summaryBar: {
-    flexDirection: "row",
-    backgroundColor: C.card2,
-    borderRadius: 10,
-    borderWidth: 0.5,
-    borderColor: C.border,
-    overflow: "hidden",
+    flexDirection: "row", backgroundColor: C.card2,
+    borderRadius: 10, borderWidth: 0.5, borderColor: C.border, overflow: "hidden",
   },
   summaryItem:       { flex: 1, alignItems: "center", paddingVertical: 12 },
   summaryItemBorder: { borderRightWidth: 0.5, borderRightColor: C.border },
   summaryValue:      { fontSize: 20, fontWeight: "700", color: C.blueText },
   summaryLabel:      { fontSize: 10, color: C.muted, marginTop: 2, fontWeight: "500", letterSpacing: 0.4 },
 
-  warningText: {
-    color: C.amberText,
-    fontSize: 11,
-    marginTop: 10,
-    backgroundColor: C.amberSoft,
-    borderRadius: 8,
-    padding: 8,
-    lineHeight: 16,
+  warningBox: {
+    backgroundColor: C.amberSoft, borderRadius: 8, padding: 10,
+    marginTop: 12, borderWidth: 0.5, borderColor: C.amber,
   },
+  warningTitle: { color: C.amberText, fontSize: 12, fontWeight: "700", marginBottom: 4 },
+  warningText:  { color: C.amberText, fontSize: 11, lineHeight: 16 },
+
+  goodBox: {
+    backgroundColor: C.greenSoft, borderRadius: 8, padding: 10,
+    marginTop: 12, borderWidth: 0.5, borderColor: C.green,
+  },
+  goodText: { color: C.greenText, fontSize: 12, fontWeight: "600" },
 
   sectionLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: C.muted,
-    letterSpacing: 0.8,
-    marginBottom: 10,
-    marginTop: 8,
+    fontSize: 11, fontWeight: "600", color: C.muted,
+    letterSpacing: 0.8, marginBottom: 10, marginTop: 8,
   },
 
   row: {
-    backgroundColor: C.card,
-    borderWidth: 0.5,
-    borderColor: C.border,
-    borderRadius: 12,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
+    backgroundColor: C.card, borderWidth: 0.5, borderColor: C.border,
+    borderRadius: 12, padding: 14,
+    flexDirection: "row", alignItems: "center", marginBottom: 8,
   },
   rowLeft:  { flex: 1 },
   rowTitle: { fontSize: 13, fontWeight: "600", color: C.text, marginBottom: 3 },
@@ -512,5 +566,5 @@ const styles = StyleSheet.create({
   pill:     { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, marginLeft: 10, flexShrink: 0 },
   pillText: { fontSize: 12, fontWeight: "700" },
 
-  emptyText: { color: C.muted, fontSize: 13, textAlign: "center", marginTop: 20 },
+  emptyText: { color: C.muted, fontSize: 13, textAlign: "center", marginTop: 16, marginBottom: 8 },
 });
