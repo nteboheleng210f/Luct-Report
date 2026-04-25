@@ -12,7 +12,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { signOut } from "firebase/auth";
 import { auth } from "../firebase/config";
 
-const API_URL = "http://10.115.113.31:5000/api";
+const API_URL = "https://luct-reports-kggq.onrender.com/api";
 
 export default function LecturerDashboard({ navigation }) {
   const user = auth.currentUser;

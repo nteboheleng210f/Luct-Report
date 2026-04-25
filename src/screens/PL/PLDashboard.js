@@ -9,8 +9,10 @@ import {
   StatusBar,
 } from "react-native";
 
+import { auth } from "../../firebase/config";
+import { signOut } from "firebase/auth";
 
-const API_URL = "http://10.115.113.31:5000/api";
+const API_URL = "https://luct-reports-kggq.onrender.com/api";
 
 const C = {
   navy:   "#0f1f3d",
@@ -170,7 +172,7 @@ export default function PLDashboard({ navigation }) {
             onPress={logout}
             activeOpacity={0.8}
           >
-            <Text style={s.logoutText}>Sign Out</Text>
+            <Text style={s.logoutText}>LogOut</Text>
             <Text style={s.logoutArrow}>›</Text>
           </TouchableOpacity>
 
@@ -280,9 +282,9 @@ const s = StyleSheet.create({
   },
 
   logoutBtn: {
-    backgroundColor: C.card,
+    backgroundColor:"red",
     borderWidth: 1,
-    borderColor: "#fecaca",
+    borderColor: "red",
     borderRadius: 12,
     padding: 16,
     marginTop: 16,
@@ -291,9 +293,10 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
   logoutText: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "600",
-    color: "#dc2626",
+    alignItems: "center",
+    color: "white",
   },
   logoutArrow: {
     fontSize: 22,

@@ -24,6 +24,18 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e35f2381-a3f8-4d59-83a9-f745241de770"
+      }
+    },
+    "owner": "nteboheleng",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e35f2381-a3f8-4d59-83a9-f745241de770"
     }
   }
 }

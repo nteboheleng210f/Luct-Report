@@ -13,19 +13,21 @@ const getClassInit = async (req, res) => {
     let students  = [];
 
     if (role === "lecturer") {
-      // Only courses assigned to this lecturer
       const snap = await db.collection("courses")
         .where("lecturerId", "==", userId).get();
       schedules = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } else {
-      // All class schedules
-      const schedSnap = await db.collection("classSchedules").get();
+      const [schedSnap, usersSnap] = await Promise.all([
+        db.collection("classSchedules").get(),
+        db.collection("users").get(), // fetch ALL, filter in code
+      ]);
+
       schedules = schedSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-      // All students (for assignment panel)
-      const usersSnap = await db.collection("users")
-        .where("role", "==", "student").get();
-      students = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      students = usersSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(u => (u.role || "").trim().toLowerCase() === "student")
+        .map(({ password, ...rest }) => rest); // never send hashed password to client
     }
 
     res.json({ role, schedules, students });

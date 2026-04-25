@@ -1,19 +1,11 @@
 import React, { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
-  StatusBar,
+  View, Text, StyleSheet, TextInput, TouchableOpacity,
+  ScrollView, Alert, ActivityIndicator, StatusBar,
 } from "react-native";
-
 import { auth } from "../firebase/config";
 
-const API_URL = "http://10.115.113.31:5000/api";
+const API_URL = "https://luct-reports-kggq.onrender.com/api";
 
 export default function CoursesScreen() {
   const user = auth.currentUser;
@@ -23,10 +15,9 @@ export default function CoursesScreen() {
   const [fetching, setFetching] = useState(true);
 
   const [courses,   setCourses]   = useState([]);
-  const [classes,   setClasses]   = useState([]);
+  const [classes,   setClasses]   = useState([]);   // from classSchedules collection
   const [lecturers, setLecturers] = useState([]);
 
-  // Form fields (PL only)
   const [courseName, setCourseName] = useState("");
   const [courseCode, setCourseCode] = useState("");
 
@@ -36,17 +27,17 @@ export default function CoursesScreen() {
   const [showClassDropdown,    setShowClassDropdown]    = useState(false);
   const [showLecturerDropdown, setShowLecturerDropdown] = useState(false);
 
-  // ── Load ─────────────────────────────────────────────────
   useEffect(() => {
     const load = async () => {
       try {
+        // classes in the response come from classSchedules (see getCourseInit backend)
         const res = await fetch(`${API_URL}/courses/init/${user.uid}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
         setRole(data.role);
-        setCourses(data.courses   || []);
-        setClasses(data.classes   || []);
+        setCourses(data.courses     || []);
+        setClasses(data.classes     || []);   // classSchedules docs
         setLecturers(data.lecturers || []);
       } catch (e) {
         Alert.alert("Error", e.message);
@@ -57,16 +48,13 @@ export default function CoursesScreen() {
     load();
   }, []);
 
-  // ── Create course (PL only) ───────────────────────────────
   const createCourse = async () => {
     if (!courseName || !courseCode || !selectedClass || !selectedLecturer) {
       Alert.alert("Missing Info", "Please fill all fields");
       return;
     }
-
     try {
       setLoading(true);
-
       const res = await fetch(`${API_URL}/courses`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -82,19 +70,13 @@ export default function CoursesScreen() {
           lecturerName: selectedLecturer.username || selectedLecturer.email,
         }),
       });
-
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const newCourse = await res.json();
-
       setCourses(prev => [...prev, newCourse]);
       Alert.alert("Success", "Course created successfully");
-
-      setCourseName("");
-      setCourseCode("");
-      setSelectedClass(null);
-      setSelectedLecturer(null);
-      setShowClassDropdown(false);
-      setShowLecturerDropdown(false);
+      setCourseName(""); setCourseCode("");
+      setSelectedClass(null); setSelectedLecturer(null);
+      setShowClassDropdown(false); setShowLecturerDropdown(false);
     } catch (e) {
       Alert.alert("Error", e.message);
     } finally {
@@ -102,7 +84,6 @@ export default function CoursesScreen() {
     }
   };
 
-  // ── Loading ──────────────────────────────────────────────
   if (fetching) {
     return (
       <View style={styles.center}>
@@ -116,7 +97,7 @@ export default function CoursesScreen() {
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <StatusBar barStyle="light-content" />
 
-      {/* ── Header ── */}
+      {/* Header */}
       <View style={styles.headerCard}>
         <View>
           <Text style={styles.pageTitle}>
@@ -133,7 +114,7 @@ export default function CoursesScreen() {
         </View>
       </View>
 
-      {/* ── Create form (PL only) ── */}
+      {/* Create form (PL only) */}
       {role !== "prl" && (
         <>
           <Text style={styles.sectionLabel}>CREATE NEW COURSE</Text>
@@ -157,7 +138,7 @@ export default function CoursesScreen() {
               onChangeText={setCourseCode}
             />
 
-            {/* Class dropdown */}
+            {/* Class schedule dropdown — data from classSchedules collection */}
             <Text style={styles.fieldLabel}>Select Class Schedule</Text>
             <TouchableOpacity
               style={styles.dropdownBox}
@@ -168,23 +149,37 @@ export default function CoursesScreen() {
             >
               <Text style={styles.dropdownText}>
                 {selectedClass
-                  ? `${selectedClass.className} (${selectedClass.venue})`
+                  ? `${selectedClass.className} — ${selectedClass.venue}`
                   : "Choose Class Schedule"}
               </Text>
               <Text style={styles.dropdownArrow}>{showClassDropdown ? "▲" : "▼"}</Text>
             </TouchableOpacity>
 
-            {showClassDropdown && classes.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                style={styles.optionCard}
-                onPress={() => { setSelectedClass(item); setShowClassDropdown(false); }}
-              >
-                <Text style={styles.cardTitle}>{item.className}</Text>
-                <Text style={styles.cardSub}>{item.venue}</Text>
-                <Text style={styles.cardSub}>{item.day} • {item.time}</Text>
-              </TouchableOpacity>
-            ))}
+            {showClassDropdown && (
+              classes.length === 0 ? (
+                <View style={styles.emptyDropdown}>
+                  <Text style={styles.emptyDropdownText}>
+                    No class schedules found. Create one in the Class &amp; Timetable screen first.
+                  </Text>
+                </View>
+              ) : (
+                classes.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.optionCard}
+                    onPress={() => { setSelectedClass(item); setShowClassDropdown(false); }}
+                  >
+                    <Text style={styles.cardTitle}>{item.className}</Text>
+                    {item.facultyName && (
+                      <Text style={styles.cardSub}>{item.facultyName}</Text>
+                    )}
+                    <Text style={styles.cardSub}>
+                      {[item.venue, item.day, item.time].filter(Boolean).join(" • ")}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )
+            )}
 
             {/* Lecturer dropdown */}
             <Text style={styles.fieldLabel}>Select Lecturer</Text>
@@ -210,6 +205,9 @@ export default function CoursesScreen() {
                 onPress={() => { setSelectedLecturer(item); setShowLecturerDropdown(false); }}
               >
                 <Text style={styles.cardTitle}>{item.username || item.email}</Text>
+                {item.email && item.username && (
+                  <Text style={styles.cardSub}>{item.email}</Text>
+                )}
               </TouchableOpacity>
             ))}
 
@@ -227,7 +225,7 @@ export default function CoursesScreen() {
         </>
       )}
 
-      {/* ── Courses list ── */}
+      {/* Courses list */}
       <Text style={styles.sectionLabel}>
         {role === "prl" ? "ALL COURSES" : "CREATED COURSES"}
       </Text>
@@ -288,6 +286,12 @@ const styles = StyleSheet.create({
   },
   dropdownText:  { color: "#f8fafc", fontSize: 13 },
   dropdownArrow: { color: "#94a3b8", fontSize: 12 },
+
+  emptyDropdown: {
+    backgroundColor: "#111827", borderWidth: 0.5, borderColor: "#1e293b",
+    borderRadius: 10, padding: 14, marginBottom: 8,
+  },
+  emptyDropdownText: { color: "#64748b", fontSize: 12, textAlign: "center" },
 
   optionCard: {
     backgroundColor: "#111827", borderWidth: 0.5, borderColor: "#1e293b",

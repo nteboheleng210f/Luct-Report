@@ -10,8 +10,9 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
+import { auth } from "../../firebase/config";
 
-const API_URL = "http://10.115.113.31:5000/api";
+const API_URL = "https://luct-reports-kggq.onrender.com/api";
 
 const C = {
   bg:       "#070b18",
