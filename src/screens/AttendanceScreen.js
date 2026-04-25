@@ -9,14 +9,9 @@ import {
   ActivityIndicator
 } from "react-native";
 
-import { db, auth } from "../firebase/config";
-import {
-  collection,
-  getDocs,
-  addDoc,
-  doc,
-  getDoc
-} from "firebase/firestore";
+import { auth } from "../firebase/config";
+
+const API_URL = "http://10.115.113.31:5000/api";
 
 export default function AttendanceScreen() {
 
@@ -70,15 +65,43 @@ export default function AttendanceScreen() {
   // =========================
   // LOAD STUDENT ATTENDANCE
   // =========================
-  const loadStudentAttendance = async () => {
+  // =========================
+// LOAD STUDENT ATTENDANCE
+// =========================
+const loadStudentAttendance = async () => {
+  try {
+    const res = await fetch(
+      `${API_URL}/attendance/student/${user.uid}`
+    );
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.message || "Failed to load attendance");
+    }
+
+    setStudentRecords(data);
+
+  } catch (error) {
+    Alert.alert("Error", error.message);
+    console.log(error.message);
+  } finally {
+    setLoading(false);
+  }
+};
+  
+  useEffect(() => {
+  const loadData = async () => {
     try {
-      const snap = await getDocs(collection(db, "attendance"));
+      const res = await fetch(
+        `${API_URL}/attendance/${user.uid}`
+      );
 
-      const myRecords = snap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(a => a.studentId === user.uid);
+      const data = await res.json();
 
-      setStudentRecords(myRecords);
+      setRole(data.role);
+      setCourses(data.courses || []);
+      setStudentRecords(data.studentRecords || []);
 
     } catch (error) {
       Alert.alert("Error", error.message);
@@ -87,52 +110,37 @@ export default function AttendanceScreen() {
     }
   };
 
-  // =========================
-  // INIT
-  // =========================
-  useEffect(() => {
-    const init = async () => {
-      await fetchRole();
+  loadData();
+}, []);
 
-      if (role === "lecturer") {
-        await loadCourses();
-        setLoading(false);
-      } else {
-        await loadStudentAttendance();
-      }
-    };
-
-    init();
-  }, [role]);
-
-  // =========================
-  // LOAD STUDENTS (LECTURER)
-  // =========================
   const loadStudents = async (course) => {
-    setSelectedCourse(course);
+  setSelectedCourse(course);
 
-    try {
-      const snap = await getDocs(collection(db, "users"));
+  try {
+    const res = await fetch(
+      `${API_URL}/attendance/students/list`
+    );
 
-      const studentsList = snap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(u => u.role === "student");
+    const studentsList = await res.json();
 
-      setStudents(studentsList);
+    setStudents(studentsList);
 
-      const initial = {};
-      studentsList.forEach(s => {
-        initial[s.id] = "Present";
-      });
+    const initial = {};
+    studentsList.forEach(student => {
+      initial[student.id] = "Present";
+    });
 
-      setAttendance(initial);
+    setAttendance(initial);
 
-      Alert.alert("Loaded", `${studentsList.length} students ready`);
+    Alert.alert(
+      "Loaded",
+      `${studentsList.length} students ready`
+    );
 
-    } catch (error) {
-      Alert.alert("Error", error.message);
-    }
-  };
+  } catch (error) {
+    Alert.alert("Error", error.message);
+  }
+};
 
   // =========================
   // SET STATUS
@@ -148,38 +156,39 @@ export default function AttendanceScreen() {
   // SAVE ATTENDANCE
   // =========================
   const saveAttendance = async () => {
+  if (!selectedCourse) {
+    return Alert.alert(
+      "Error",
+      "Please select a course"
+    );
+  }
 
-    if (!selectedCourse) {
-      return Alert.alert("Error", "Please select a course");
-    }
+  try {
+    const res = await fetch(
+      `${API_URL}/attendance/save`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          lecturerId: user.uid,
+          selectedCourse,
+          students,
+          attendance,
+        }),
+      }
+    );
 
-    try {
+    const data = await res.json();
 
-      const promises = students.map(student =>
-        addDoc(collection(db, "attendance"), {
-          studentId: student.id,
-          studentName: student.username || student.email,
-          courseId: selectedCourse.id,
-          courseName: selectedCourse.courseName,
-          classId: selectedCourse.classId,
-          status: attendance[student.id],
-          date: new Date().toISOString(),
-          lecturerId: user.uid
-        })
-      );
+    Alert.alert("Success", data.message);
 
-      await Promise.all(promises);
+  } catch (error) {
+    Alert.alert("Error", error.message);
+  }
+};
 
-      Alert.alert("Success", "Attendance submitted");
-
-    } catch (error) {
-      Alert.alert("Error", error.message);
-    }
-  };
-
-  // =========================
-  // LOADING
-  // =========================
   if (loading || !role) {
     return (
       <View style={styles.center}>

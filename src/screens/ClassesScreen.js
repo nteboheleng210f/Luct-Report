@@ -11,18 +11,10 @@ import {
   StatusBar,
 } from "react-native";
 
-import { auth, db } from "../firebase/config";
+import { auth } from "../firebase/config";
 import { onAuthStateChanged } from "firebase/auth";
-import {
-  collection,
-  addDoc,
-  getDocs,
-  doc,
-  updateDoc,
-  getDoc,
-  query,
-  where,
-} from "firebase/firestore";
+
+const API_URL = "http://10.115.113.31:5000/api";
 
 const getInitials = (name = "", email = "") => {
   const src = name || email;
@@ -32,21 +24,19 @@ const getInitials = (name = "", email = "") => {
 };
 
 export default function ClassScheduleScreen() {
-
-  const [loading, setLoading]   = useState(false);
   const [fetching, setFetching] = useState(true);
-
+  const [loading,  setLoading]  = useState(false);
   const [userRole, setUserRole] = useState(null);
+  const [userId,   setUserId]   = useState(null);
 
-  // Admin sees classSchedules; Lecturer sees courses assigned to them
-  const [schedules, setSchedules] = useState([]);
-  const [students, setStudents]   = useState([]);
+  const [schedules,  setSchedules]  = useState([]);
+  const [students,   setStudents]   = useState([]);
+  const [assignedMap, setAssignedMap] = useState({});
 
-  const [selectedClassId, setSelectedClassId]     = useState(null);
+  const [selectedClassId,   setSelectedClassId]   = useState(null);
   const [selectedClassName, setSelectedClassName] = useState("");
-  const [assignedMap, setAssignedMap]             = useState({});
 
-  // Form fields (admin only)
+  // Form fields (admin / PL only)
   const [className,   setClassName]   = useState("");
   const [facultyName, setFacultyName] = useState("");
   const [venue,       setVenue]       = useState("");
@@ -55,68 +45,36 @@ export default function ClassScheduleScreen() {
   const [courseCode,  setCourseCode]  = useState("");
   const [courseName,  setCourseName]  = useState("");
 
-  // ─────────────────────────────────────────────
-  // Auth guard → then load correct collection
-  // ─────────────────────────────────────────────
+  // ── Load data ────────────────────────────────────────────
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (!firebaseUser) {
-        setFetching(false);
-        Alert.alert("Error", "Not authenticated");
-        return;
-      }
+    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!firebaseUser) { setFetching(false); return; }
 
-      const uid = firebaseUser.uid;
+      setUserId(firebaseUser.uid);
 
       try {
-        // 1. Get role
-        const userDoc  = await getDoc(doc(db, "users", uid));
-        const userData = userDoc.exists() ? userDoc.data() : {};
-        const role     = userData.role || "student";
-        setUserRole(role);
+        const res = await fetch(`${API_URL}/classes/init/${firebaseUser.uid}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
 
-        if (role === "lecturer") {
-          // ── LECTURER: query the `courses` collection by lecturerId ──
-          // This is where PL saves assigned courses with lecturerId field
-          const q = query(
-            collection(db, "courses"),
-            where("lecturerId", "==", uid)
-          );
-          const snap = await getDocs(q);
-          const results = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-          setSchedules(results);
+        setUserRole(data.role);
+        setSchedules(data.schedules || []);
+        setStudents(data.students   || []);
 
-        } else {
-          // ── ADMIN / PL: query `classSchedules` (all classes) ──
-          const snap    = await getDocs(collection(db, "classSchedules"));
-          const results = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-          setSchedules(results);
-
-          // Also load students for assignment
-          const userSnap    = await getDocs(collection(db, "users"));
-          const studentList = userSnap.docs
-            .map((d) => ({ id: d.id, ...d.data() }))
-            .filter((u) => u.role === "student");
-          setStudents(studentList);
-
-          const map = {};
-          studentList.forEach((s) => { if (s.classId) map[s.id] = s.classId; });
-          setAssignedMap(map);
-        }
-
-      } catch (error) {
-        Alert.alert("Load Error", error.message);
+        // rebuild assignedMap from student list
+        const map = {};
+        (data.students || []).forEach((s) => { if (s.classId) map[s.id] = s.classId; });
+        setAssignedMap(map);
+      } catch (e) {
+        Alert.alert("Load Error", e.message);
       } finally {
         setFetching(false);
       }
     });
-
-    return () => unsubscribe();
+    return () => unsub();
   }, []);
 
-  // ─────────────────────────────────────────────
-  // Create class (admin only → classSchedules)
-  // ─────────────────────────────────────────────
+  // ── Create class ─────────────────────────────────────────
   const createSchedule = async () => {
     if (!className || !facultyName || !venue || !day || !time) {
       Alert.alert("Missing Info", "Please fill all fields");
@@ -124,32 +82,40 @@ export default function ClassScheduleScreen() {
     }
     try {
       setLoading(true);
-      const payload = { className, facultyName, venue, day, time, courseCode, courseName, createdAt: new Date().toISOString() };
-      const docRef = await addDoc(collection(db, "classSchedules"), payload);
-      setSchedules((prev) => [...prev, { id: docRef.id, ...payload }]);
+      const res = await fetch(`${API_URL}/classes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ className, facultyName, venue, day, time, courseCode, courseName }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const newClass = await res.json();
+
+      setSchedules((prev) => [...prev, newClass]);
       setClassName(""); setFacultyName(""); setVenue("");
       setDay(""); setTime(""); setCourseCode(""); setCourseName("");
       Alert.alert("Success", "Class created successfully");
-    } catch (error) {
-      Alert.alert("Error", error.message);
+    } catch (e) {
+      Alert.alert("Error", e.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // ─────────────────────────────────────────────
-  // Assign student (admin only)
-  // ─────────────────────────────────────────────
+  // ── Assign student ───────────────────────────────────────
   const assignStudent = async (studentId, classId) => {
     try {
-      await updateDoc(doc(db, "users", studentId), { classId });
+      const res = await fetch(`${API_URL}/classes/assign`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentId, classId }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setAssignedMap((prev) => ({ ...prev, [studentId]: classId }));
-    } catch (error) {
-      Alert.alert("Error", error.message);
+    } catch (e) {
+      Alert.alert("Error", e.message);
     }
   };
 
-  // ─────────────────────────────────────────────
   if (fetching) {
     return (
       <View style={styles.center}>
@@ -165,7 +131,7 @@ export default function ClassScheduleScreen() {
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <StatusBar barStyle="light-content" />
 
-      {/* ── PAGE HEADER ── */}
+      {/* ── Page header ── */}
       <View style={styles.pageHeader}>
         <View>
           <Text style={styles.pageTitle}>
@@ -180,9 +146,7 @@ export default function ClassScheduleScreen() {
         <View style={styles.pageIcon} />
       </View>
 
-      {/* ══════════════════════════════════════════
-          1. CLASS / COURSE LIST  (shown first)
-      ══════════════════════════════════════════ */}
+      {/* ── Schedules list ── */}
       <Text style={styles.sectionLabel}>
         {isLecturer ? "YOUR ASSIGNED COURSES" : "SCHEDULED CLASSES"}
       </Text>
@@ -203,11 +167,7 @@ export default function ClassScheduleScreen() {
         schedules.map((item) => {
           const isActive = selectedClassId === item.id;
           return (
-            <View
-              key={item.id}
-              style={[styles.classCard, isActive && styles.classCardActive]}
-            >
-              {/* Card top */}
+            <View key={item.id} style={[styles.classCard, isActive && styles.classCardActive]}>
               <View style={styles.classCardTop}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.classCardName}>{item.className}</Text>
@@ -224,7 +184,6 @@ export default function ClassScheduleScreen() {
                 )}
               </View>
 
-              {/* Meta chips */}
               <View style={styles.metaRow}>
                 {item.facultyName  && <View style={styles.chip}><Text style={styles.chipText}>{item.facultyName}</Text></View>}
                 {item.day && item.time && <View style={styles.chip}><Text style={styles.chipText}>{item.day}  {item.time}</Text></View>}
@@ -232,7 +191,6 @@ export default function ClassScheduleScreen() {
                 {item.lecturerName && <View style={[styles.chip, styles.chipLecturer]}><Text style={[styles.chipText, styles.chipTextLecturer]}>{item.lecturerName}</Text></View>}
               </View>
 
-              {/* Lecturer: read-only badge strip */}
               {isLecturer && (
                 <View style={styles.lecturerBadgeRow}>
                   <View style={styles.lecturerBadge}>
@@ -241,13 +199,12 @@ export default function ClassScheduleScreen() {
                 </View>
               )}
 
-              {/* Admin: assign students button */}
               {!isLecturer && (
                 <TouchableOpacity
                   style={[styles.assignClassBtn, isActive && styles.assignClassBtnActive]}
                   onPress={() => {
                     if (isActive) { setSelectedClassId(null); setSelectedClassName(""); }
-                    else { setSelectedClassId(item.id); setSelectedClassName(item.className); }
+                    else          { setSelectedClassId(item.id); setSelectedClassName(item.className); }
                   }}
                 >
                   <Text style={[styles.assignClassBtnText, isActive && styles.assignClassBtnTextActive]}>
@@ -260,7 +217,7 @@ export default function ClassScheduleScreen() {
         })
       )}
 
-      {/* ── ASSIGN STUDENTS PANEL (admin only) ── */}
+      {/* ── Student assignment panel ── */}
       {!isLecturer && selectedClassId && (
         <>
           <Text style={styles.sectionLabel}>ASSIGN STUDENTS — {selectedClassName}</Text>
@@ -306,9 +263,7 @@ export default function ClassScheduleScreen() {
         </>
       )}
 
-      {/* ══════════════════════════════════════════
-          2. CREATE CLASS FORM (admin only, shown last)
-      ══════════════════════════════════════════ */}
+      {/* ── Create class form ── */}
       {!isLecturer && (
         <>
           <Text style={styles.sectionLabel}>CREATE NEW CLASS</Text>
@@ -341,7 +296,7 @@ export default function ClassScheduleScreen() {
             </View>
 
             <Text style={styles.fieldLabel}>Venue</Text>
-            <TextInput style={styles.input} placeholder="Room1"
+            <TextInput style={styles.input} placeholder="Room 1"
               placeholderTextColor="#334155" value={venue} onChangeText={setVenue} />
 
             <View style={styles.row2}>
@@ -377,70 +332,72 @@ export default function ClassScheduleScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#070b18", padding: 16 },
-  center: { flex: 1, backgroundColor: "#070b18", justifyContent: "center", alignItems: "center", gap: 12 },
+  container:   { flex: 1, backgroundColor: "#070b18", padding: 16 },
+  center:      { flex: 1, backgroundColor: "#070b18", justifyContent: "center", alignItems: "center", gap: 12 },
   loadingText: { color: "#64748b", fontSize: 14 },
 
   pageHeader: { backgroundColor: "#0f172a", borderWidth: 0.5, borderColor: "#1e293b", borderRadius: 14, padding: 16, marginBottom: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   pageTitle:  { color: "#f1f5f9", fontSize: 17, fontWeight: "700" },
   pageSub:    { color: "#475569", fontSize: 12, marginTop: 2 },
-  pageIcon: { width: 38, height: 38, borderRadius: 10, backgroundColor: "#1d4ed8" },
+  pageIcon:   { width: 38, height: 38, borderRadius: 10, backgroundColor: "#1d4ed8" },
 
   sectionLabel: { fontSize: 11, fontWeight: "600", color: "#475569", letterSpacing: 0.8, marginBottom: 10, marginTop: 4 },
 
-  classCard: { backgroundColor: "#0f172a", borderWidth: 0.5, borderColor: "#1e293b", borderLeftWidth: 3, borderLeftColor: "#2563eb", borderRadius: 14, padding: 14, marginBottom: 8 },
+  classCard:       { backgroundColor: "#0f172a", borderWidth: 0.5, borderColor: "#1e293b", borderLeftWidth: 3, borderLeftColor: "#2563eb", borderRadius: 14, padding: 14, marginBottom: 8 },
   classCardActive: { borderLeftColor: "#16a34a", backgroundColor: "#0a1f10" },
-  classCardTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 6 },
+  classCardTop:    { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 6 },
   classCardName:   { fontSize: 14, fontWeight: "600", color: "#93c5fd" },
   classCardCourse: { fontSize: 11, color: "#60a5fa", marginTop: 2, opacity: 0.8 },
-  selectedBadge: { backgroundColor: "#052e16", borderWidth: 0.5, borderColor: "#166534", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20, marginLeft: 8 },
+
+  selectedBadge:     { backgroundColor: "#052e16", borderWidth: 0.5, borderColor: "#166534", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20, marginLeft: 8 },
   selectedBadgeText: { fontSize: 10, color: "#4ade80", fontWeight: "600" },
 
-  metaRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 },
-  chip: { backgroundColor: "#1e293b", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  chipText: { fontSize: 11, color: "#94a3b8" },
-  chipVenue: { backgroundColor: "#0c2240" },
-  chipTextVenue: { color: "#60a5fa" },
-  chipLecturer: { backgroundColor: "#1a1040" },
+  metaRow:          { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 },
+  chip:             { backgroundColor: "#1e293b", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  chipText:         { fontSize: 11, color: "#94a3b8" },
+  chipVenue:        { backgroundColor: "#0c2240" },
+  chipTextVenue:    { color: "#60a5fa" },
+  chipLecturer:     { backgroundColor: "#1a1040" },
   chipTextLecturer: { color: "#a5b4fc" },
 
   lecturerBadgeRow: { flexDirection: "row" },
-  lecturerBadge: { backgroundColor: "#0c2240", borderWidth: 0.5, borderColor: "#1e4080", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  lecturerBadgeText: { fontSize: 10, color: "#60a5fa", fontWeight: "600" },
+  lecturerBadge:    { backgroundColor: "#0c2240", borderWidth: 0.5, borderColor: "#1e4080", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  lecturerBadgeText:{ fontSize: 10, color: "#60a5fa", fontWeight: "600" },
 
-  assignClassBtn: { backgroundColor: "#0f2d18", borderWidth: 0.5, borderColor: "#166534", borderRadius: 8, padding: 8, alignItems: "center" },
-  assignClassBtnActive: { backgroundColor: "#1e293b", borderColor: "#334155" },
-  assignClassBtnText: { fontSize: 12, fontWeight: "500", color: "#4ade80" },
-  assignClassBtnTextActive: { color: "#64748b" },
+  assignClassBtn:         { backgroundColor: "#0f2d18", borderWidth: 0.5, borderColor: "#166534", borderRadius: 8, padding: 8, alignItems: "center" },
+  assignClassBtnActive:   { backgroundColor: "#1e293b", borderColor: "#334155" },
+  assignClassBtnText:     { fontSize: 12, fontWeight: "500", color: "#4ade80" },
+  assignClassBtnTextActive:{ color: "#64748b" },
 
-  emptyStateCard: { backgroundColor: "#0f172a", borderWidth: 0.5, borderColor: "#1e293b", borderRadius: 14, padding: 32, alignItems: "center", marginBottom: 16 },
-  emptyStateIconBox: { width: 36, height: 36, borderRadius: 8, backgroundColor: "#1e293b", marginBottom: 12 },
+  emptyStateCard:  { backgroundColor: "#0f172a", borderWidth: 0.5, borderColor: "#1e293b", borderRadius: 14, padding: 32, alignItems: "center", marginBottom: 16 },
+  emptyStateIconBox:{ width: 36, height: 36, borderRadius: 8, backgroundColor: "#1e293b", marginBottom: 12 },
   emptyStateTitle: { color: "#f1f5f9", fontSize: 15, fontWeight: "600", marginBottom: 6 },
   emptyStateText:  { color: "#475569", fontSize: 12, textAlign: "center", lineHeight: 18 },
 
-  studentPanel: { backgroundColor: "#0f172a", borderWidth: 0.5, borderColor: "#1e293b", borderRadius: 14, overflow: "hidden", marginBottom: 16 },
-  panelHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 12, paddingHorizontal: 14, borderBottomWidth: 0.5, borderBottomColor: "#1e293b" },
-  panelHeaderTitle: { fontSize: 13, fontWeight: "500", color: "#f1f5f9" },
-  panelHeaderCount: { fontSize: 11, color: "#475569" },
-  emptyState: { padding: 24, alignItems: "center" },
-  emptyText:  { color: "#475569", fontSize: 13 },
-  studentRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 14, borderBottomWidth: 0.5, borderBottomColor: "#0f172a" },
-  studentAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: "#1a1040", alignItems: "center", justifyContent: "center", marginRight: 10, flexShrink: 0 },
+  studentPanel:      { backgroundColor: "#0f172a", borderWidth: 0.5, borderColor: "#1e293b", borderRadius: 14, overflow: "hidden", marginBottom: 16 },
+  panelHeader:       { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 12, paddingHorizontal: 14, borderBottomWidth: 0.5, borderBottomColor: "#1e293b" },
+  panelHeaderTitle:  { fontSize: 13, fontWeight: "500", color: "#f1f5f9" },
+  panelHeaderCount:  { fontSize: 11, color: "#475569" },
+  emptyState:        { padding: 24, alignItems: "center" },
+  emptyText:         { color: "#475569", fontSize: 13 },
+  studentRow:        { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 14, borderBottomWidth: 0.5, borderBottomColor: "#0f172a" },
+  studentAvatar:     { width: 30, height: 30, borderRadius: 15, backgroundColor: "#1a1040", alignItems: "center", justifyContent: "center", marginRight: 10, flexShrink: 0 },
   studentAvatarText: { fontSize: 10, fontWeight: "600", color: "#a5b4fc" },
-  studentInfo: { flex: 1 },
-  studentName:  { fontSize: 13, color: "#f1f5f9" },
-  studentEmail: { fontSize: 11, color: "#475569", marginTop: 1 },
-  assignBtn: { backgroundColor: "#1d4ed8", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, marginLeft: 8 },
-  assignBtnDone: { backgroundColor: "#052e16", borderWidth: 0.5, borderColor: "#166534" },
-  assignBtnText: { fontSize: 11, fontWeight: "600", color: "#bfdbfe" },
+  studentInfo:       { flex: 1 },
+  studentName:       { fontSize: 13, color: "#f1f5f9" },
+  studentEmail:      { fontSize: 11, color: "#475569", marginTop: 1 },
+  assignBtn:         { backgroundColor: "#1d4ed8", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, marginLeft: 8 },
+  assignBtnDone:     { backgroundColor: "#052e16", borderWidth: 0.5, borderColor: "#166534" },
+  assignBtnText:     { fontSize: 11, fontWeight: "600", color: "#bfdbfe" },
   assignBtnTextDone: { color: "#4ade80" },
 
-  formCard: { backgroundColor: "#0f172a", borderWidth: 0.5, borderColor: "#1e293b", borderRadius: 14, padding: 14, marginBottom: 16 },
-  row2: { flexDirection: "row", gap: 8 },
-  fieldWrap: { flex: 1 },
+  formCard:   { backgroundColor: "#0f172a", borderWidth: 0.5, borderColor: "#1e293b", borderRadius: 14, padding: 14, marginBottom: 16 },
+  row2:       { flexDirection: "row", gap: 8 },
+  fieldWrap:  { flex: 1 },
   fieldLabel: { fontSize: 11, color: "#475569", fontWeight: "500", marginBottom: 4, marginTop: 4 },
-  input: { backgroundColor: "#111827", borderWidth: 0.5, borderColor: "#1e293b", borderRadius: 8, padding: 10, fontSize: 13, color: "#f1f5f9", marginBottom: 8 },
-  createBtn: { backgroundColor: "#1d4ed8", borderRadius: 10, padding: 12, alignItems: "center", marginTop: 4 },
+  input:      { backgroundColor: "#111827", borderWidth: 0.5, borderColor: "#1e293b", borderRadius: 8, padding: 10, fontSize: 13, color: "#f1f5f9", marginBottom: 8 },
+
+  createBtn:         { backgroundColor: "#1d4ed8", borderRadius: 10, padding: 12, alignItems: "center", marginTop: 4 },
   createBtnDisabled: { opacity: 0.5 },
-  createBtnText: { color: "#bfdbfe", fontSize: 13, fontWeight: "600" },
+  createBtnText:     { color: "#bfdbfe", fontSize: 13, fontWeight: "600" },
 });

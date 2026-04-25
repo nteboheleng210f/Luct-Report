@@ -9,10 +9,8 @@ import {
   StatusBar,
 } from "react-native";
 
-import { signOut } from "firebase/auth";
-import { auth, db } from "../../firebase/config";
-import { collection, getDocs } from "firebase/firestore";
 
+const API_URL = "http://10.115.113.31:5000/api";
 
 const C = {
   navy:   "#0f1f3d",
@@ -27,6 +25,7 @@ const C = {
   muted:  "#6c7a96",
   badge:  "#edf0f7",
 };
+
 function NavCard({ title, subtitle, route, navigation }) {
   return (
     <TouchableOpacity
@@ -56,26 +55,27 @@ export default function PLDashboard({ navigation }) {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const [coursesSnap, classesSnap, reportsSnap, usersSnap] =
-          await Promise.all([
-            getDocs(collection(db, "courses")),
-            getDocs(collection(db, "classSchedules")),
-            getDocs(collection(db, "lectureReports")),
-            getDocs(collection(db, "users")),
-          ]);
+        const response = await fetch(`${API_URL}/pl/stats`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
 
-        const lecturersCount = usersSnap.docs
-          .map((d) => d.data())
-          .filter((u) => u.role === "lecturer").length;
+        if (!response.ok) {
+          throw new Error(`HTTP error: ${response.status}`);
+        }
+
+        const data = await response.json();
 
         setStats({
-          courses:   coursesSnap.size,
-          classes:   classesSnap.size,
-          reports:   reportsSnap.size,
-          lecturers: lecturersCount,
+          courses:   data.courses   ?? 0,
+          classes:   data.classes   ?? 0,
+          reports:   data.reports   ?? 0,
+          lecturers: data.lecturers ?? 0,
         });
       } catch (e) {
-        console.log(e.message);
+        console.log("Failed to fetch dashboard stats:", e.message);
       }
     };
 
@@ -86,7 +86,6 @@ export default function PLDashboard({ navigation }) {
     await signOut(auth);
     navigation.replace("Login");
   };
-
 
   const initials = (user?.displayName || "PL")
     .split(" ")
@@ -101,7 +100,6 @@ export default function PLDashboard({ navigation }) {
 
       <ScrollView showsVerticalScrollIndicator={false}>
 
-       
         <View style={s.header}>
           <Text style={s.eyebrow}>Programme Leader</Text>
           <Text style={s.headerTitle}>
@@ -167,7 +165,6 @@ export default function PLDashboard({ navigation }) {
             navigation={navigation}
           />
 
-          
           <TouchableOpacity
             style={s.logoutBtn}
             onPress={logout}
@@ -182,7 +179,6 @@ export default function PLDashboard({ navigation }) {
     </SafeAreaView>
   );
 }
-
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
@@ -241,12 +237,10 @@ const s = StyleSheet.create({
     marginVertical: 4,
   },
 
- 
   body: {
     padding: 16,
     paddingBottom: 48,
   },
-
 
   sectionLabel: {
     fontSize: 11,
@@ -258,7 +252,6 @@ const s = StyleSheet.create({
     marginTop: 4,
   },
 
-  
   navCard: {
     backgroundColor: C.card,
     borderWidth: 1,
@@ -285,7 +278,6 @@ const s = StyleSheet.create({
     color: C.muted,
     marginLeft: 8,
   },
-
 
   logoutBtn: {
     backgroundColor: C.card,
