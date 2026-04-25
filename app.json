@@ -34,6 +34,13 @@
     "runtimeVersion": {
       "policy": "appVersion"
     },
+    
+  "expo": {
+    "web": {
+      "bundler": "metro"
+    }
+  },
+
     "updates": {
       "url": "https://u.expo.dev/e35f2381-a3f8-4d59-83a9-f745241de770"
     }

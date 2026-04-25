@@ -28,7 +28,6 @@ export default function ClassScheduleScreen() {
   const [selectedClassId,   setSelectedClassId]   = useState(null);
   const [selectedClassName, setSelectedClassName] = useState("");
 
-  // Form fields
   const [className,   setClassName]   = useState("");
   const [facultyName, setFacultyName] = useState("");
   const [venue,       setVenue]       = useState("");
@@ -68,7 +67,7 @@ export default function ClassScheduleScreen() {
       const res = await fetch(`${API_URL}/classes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // courseCode / courseName removed — those live on the Course now
+        
         body: JSON.stringify({ className, facultyName, venue, day, time }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -127,7 +126,7 @@ export default function ClassScheduleScreen() {
         <View style={styles.pageIcon} />
       </View>
 
-      {/* Schedules list */}
+     
       <Text style={styles.sectionLabel}>
         {isLecturer ? "YOUR ASSIGNED COURSES" : "SCHEDULED CLASSES"}
       </Text>
@@ -193,7 +192,6 @@ export default function ClassScheduleScreen() {
         })
       )}
 
-      {/* Student assignment panel */}
       {!isLecturer && selectedClassId && (
         <>
           <Text style={styles.sectionLabel}>ASSIGN STUDENTS — {selectedClassName}</Text>
@@ -239,7 +237,7 @@ export default function ClassScheduleScreen() {
         </>
       )}
 
-      {/* Create class form */}
+     
       {!isLecturer && (
         <>
           <Text style={styles.sectionLabel}>CREATE NEW CLASS</Text>
