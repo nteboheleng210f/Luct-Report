@@ -1,4 +1,5 @@
 const admin = require("firebase-admin");
+require("dotenv").config();
 
 admin.initializeApp({
   credential: admin.credential.cert({
@@ -7,6 +8,8 @@ admin.initializeApp({
     privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
   }),
 });
+
+console.log("Firebase  initialized ");
 
 const db = admin.firestore();
 
