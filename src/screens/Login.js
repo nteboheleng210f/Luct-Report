@@ -57,7 +57,7 @@ export default function LoginScreen({ navigation }) {
     setLoading(true);
 
     try {
-      const response = await fetch("https://luct-reports-kggq.onrender.com/api/auth/login",
+      const response = await fetch("http://10.115.113.31:5000/api/auth/login",
         {
           method: "POST",
           headers: {
@@ -70,7 +70,7 @@ export default function LoginScreen({ navigation }) {
         }
       );
 
-      // ⚠️ SAFE PARSING (prevents crash if backend returns HTML)
+      
       let data;
       try {
         data = await response.json();

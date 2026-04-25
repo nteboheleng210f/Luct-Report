@@ -5,7 +5,7 @@ import {
 } from "react-native";
 import { auth } from "../firebase/config";
 
-const API_URL = "https://luct-reports-kggq.onrender.com/api";
+const API_URL = "http://10.115.113.31:5000/api";
 
 export default function CoursesScreen() {
   const user = auth.currentUser;
