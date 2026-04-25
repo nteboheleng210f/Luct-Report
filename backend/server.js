@@ -1,7 +1,9 @@
 const app = require("./app");
 const { db } = require("./config/firebase");
 
-const PORT = 5000;
+require("dotenv").config();
+
+const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, "0.0.0.0", async () => {
   console.log(`Server running on port ${PORT}`);
@@ -10,6 +12,6 @@ app.listen(PORT, "0.0.0.0", async () => {
     await db.collection("users").limit(1).get();
     console.log("Firebase connected ✔");
   } catch (err) {
-    console.log("Firebase error ", err.message);
+    console.log("Firebase error", err.message);
   }
 });
